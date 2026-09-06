@@ -19,7 +19,7 @@ from telebot import types
 # =========================================================
 # CONFIGURATION
 # =========================================================
-BOT_TOKEN = "8765791320:AAHRxwVPvy1Bg--0QI5tFWCoJi2FD5iiRk8"
+BOT_TOKEN = "8864547814:AAEBQxt864_3n06RLllIqCsN3AuyGmJhSzg"
 API_URL = "https://advanced-predict1.ai.studio/apipid.json"
 MARKET_INTERVAL = 300  # ৫ মিনিট = ৩০০ সেকেন্ড
 TOTAL_PAGES = 50       # টোটাল ৫০ পেজ
