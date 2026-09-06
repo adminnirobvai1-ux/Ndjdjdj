@@ -17,7 +17,7 @@ from telebot.apihelper import ApiTelegramException
 # =========================================================
 # CONFIGURATION
 # =========================================================
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # আপনার টেলিগ্রাম বট টোকেন দিন
+BOT_TOKEN = "8864547814:AAEBQxt864_3n06RLllIqCsN3AuyGmJhSzg"  # আপনার টেলিগ্রাম বট টোকেন দিন
 API_URL = "https://advanced-predict1.ai.studio/apipid.json"
 MARKET_INTERVAL = 300  # 5 Minutes = 300 Seconds
 UPDATE_INTERVAL = 3    # Fast Timer Update (3 Seconds)
