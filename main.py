@@ -1,16 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-DRX-TM WinGo 5-Minute Real-Time Prediction & Market Bot
+DRX-TM WinGo 5-Minute Real-Time Prediction Telegram Bot
 API Endpoint: https://advanced-predict1.ai.studio/apipid.json
-Data Source: Extracts pure market stream from API 'prediction_history'
-Features:
-  - 50 Pages Interactive Pagination (10 records/page = 500 total)
-  - Custom Prediction Engine (Skip Page 1-2 sequence, search Pages 3-50)
-  - Outcome Verifier: 3-letter 'JAC' (Jackpot number hit), 'WIN', 'LOSS'
-  - 0/5 Violet Logic, Big/Small Rule
-  - Real-Time VIP Unicode Fonts Engine
-  - 5-Minute Visual Block Timer & Sync
-  - 24-Hour Auto Memory Retention & Cleaner
+Features: 50 Pages Pagination, Skip Page 1-2 Sequence, 0/5 = VIOLET, JAC Jackpot
+Note: Reads pure market data from API's 'prediction_history' (Period, Number, Size, Color)
+      and calculates bot's own internal predictions and JAC/WIN/LOSS outcomes.
 """
 
 import time
@@ -28,13 +22,9 @@ from telebot import types
 BOT_TOKEN = "8949748635:AAF9w3mFRx2fqcE6AslsrR7AUuNJQzqB-PA"
 API_URL = "https://advanced-predict1.ai.studio/apipid.json"
 MARKET_INTERVAL = 300  # ৫ মিনিট = ৩০০ সেকেন্ড
-TOTAL_PAGES = 50       # ৫০ পেজ = ৫০০ রেকর্ড
-RECORDS_PER_PAGE = 10  # প্রতি পেজে ১০টি সারি
+TOTAL_PAGES = 50       # টোটাল ৫০ পেজ
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(threadName)s: %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
@@ -43,7 +33,7 @@ bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 # VIP FONT ENGINE (𝐀𝐁𝐂... 𝟎𝟏𝟐...)
 # =========================================================
 def to_vip(text: str) -> str:
-    """যেকোনো টেক্সট বা সংখ্যাকে বোল্ড গাণিতিক ভিআইপি ফন্টে রূপান্তর করে"""
+    """টেক্সটকে বোল্ড ভিআইপি ফন্টে রূপান্তর করে"""
     res = []
     for ch in str(text):
         code = ord(ch)
@@ -58,7 +48,7 @@ def to_vip(text: str) -> str:
     return "".join(res)
 
 # =========================================================
-# WINGO RULES ENGINE (0 ও 5 = VIOLET)
+# RULES DEFINITION (0 ও 5 = VIOLET)
 # =========================================================
 VIOLET_NUMBERS = {0, 5}
 RED_NUMBERS = {2, 4, 6, 8}
@@ -75,13 +65,13 @@ def get_size(num: int) -> str:
     return "BIG" if num in BIG_NUMBERS else "SMALL"
 
 # =========================================================
-# STATE & 24-HOUR RETENTION STORAGE
+# STATE & 24-HOUR RETENTION
 # =========================================================
 class BotState:
     def __init__(self):
         self.lock = threading.Lock()
         self.current_period = ""
-        self.market_data = []          # ৫০ পেজের মার্কেট ডাটা (সর্বোচ্চ ৫০০টি)
+        self.market_data = []          # ৫০ পেজের ডাটা (সর্বোচ্চ ৫০০টি)
         self.current_prediction = {
             "period": "",
             "size": "--",
@@ -93,7 +83,6 @@ class BotState:
         self.active_chats = {}          # {chat_id: {"message_id": int, "page": int}}
 
     def clean_old_records(self):
-        """২৪ ঘণ্টার বেশি পুরোনো প্রেডিকশন এবং হিস্ট্রি মেমরি থেকে ক্লিন করে"""
         cutoff = datetime.now() - timedelta(hours=24)
         with self.lock:
             to_remove = [
@@ -107,30 +96,26 @@ class BotState:
 state = BotState()
 
 # =========================================================
-# API PARSER & MARKET FETCHER (EXTRACTS ONLY MARKET DATA)
+# EXACT API FETCHER (ONLY PURE MARKET: PERIOD, NUM, SIZE, COLOR)
 # =========================================================
 def fetch_api_market():
     """
-    স্ক্রিনশটের এপিআই থেকে শুধুমাত্র মার্কেট ডাটা তুলে আনে।
-    prediction_history এর ভেতর থেকে period, number, size, color রিড করে।
-    বাকি রেজাল্ট বা হিস্ট্রি ইগনোর করে সর্বোচ্চ ৫০০টি রেকর্ড সাজিয়ে নেয়।
+    API রেসপন্সের 'prediction_history' থেকে শুধুমাত্র 
+    period, number, size, color রিড করবে। 
+    API-এর প্রেডিকশন বা রেজাল্ট সম্পূর্ণ বাদ থাকবে।
     """
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json"
-        }
-        resp = requests.get(API_URL, headers=headers, timeout=12)
+        headers = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.get(API_URL, headers=headers, timeout=10)
         if resp.status_code == 200:
             data = resp.json()
             raw_list = []
 
             if isinstance(data, dict):
-                # API এর মূল ডাটা লিস্ট prediction_history থেকে রিড করা হচ্ছে
-                if "prediction_history" in data and isinstance(data["prediction_history"], list):
-                    raw_list = data["prediction_history"]
-                else:
-                    for k in ["data", "list", "result", "records", "rows"]:
+                # API-এর prediction_history অবজেক্ট লিস্ট নেওয়া হচ্ছে
+                raw_list = data.get("prediction_history", [])
+                if not raw_list:
+                    for k in ["data", "list", "records", "rows"]:
                         if k in data and isinstance(data[k], list):
                             raw_list = data[k]
                             break
@@ -140,55 +125,45 @@ def fetch_api_market():
             formatted = []
             for item in raw_list:
                 if isinstance(item, dict):
-                    # ১. পিরিয়ড বের করা
-                    period = ""
-                    for p_key in ["period", "issueNumber", "issue", "expect", "qihao"]:
-                        if p_key in item and item[p_key] is not None:
-                            period = str(item[p_key]).strip()
-                            break
+                    p_raw = item.get("period")
+                    n_raw = item.get("number")
+                    
+                    if p_raw is not None and n_raw is not None:
+                        period = str(p_raw).strip()
+                        try:
+                            num = int(n_raw)
+                        except (ValueError, TypeError):
+                            continue
 
-                    # ২. নাম্বার বের করা
-                    num = None
-                    for n_key in ["number", "openNum", "num", "code", "digit"]:
-                        if n_key in item and item[n_key] is not None:
-                            raw_val = str(item[n_key]).strip()
-                            if "," in raw_val:
-                                raw_val = raw_val.split(",")[-1]
-                            try:
-                                num = int(raw_val)
-                                break
-                            except ValueError:
-                                continue
+                        # সাইজ ও কালার এক্সট্র্যাক্ট বা রুলস অনুযায়ী বের করা
+                        s_raw = str(item.get("size", "")).strip().upper()
+                        c_raw = str(item.get("color", "")).strip().upper()
 
-                    if period and num is not None:
-                        # API সাইজ/কালার থাকলে নেওয়া হবে, না থাকলে নির্ধারিত রুলসে নেওয়া হবে
-                        size_raw = str(item.get("size", "")).strip().upper()
-                        color_raw = str(item.get("color", "")).strip().upper()
-
-                        actual_size = size_raw if size_raw in ["BIG", "SMALL"] else get_size(num)
-                        actual_color = color_raw if color_raw in ["RED", "GREEN", "VIOLET"] else get_color(num)
+                        size = s_raw if s_raw in ["BIG", "SMALL"] else get_size(num)
+                        color = c_raw if c_raw in ["RED", "GREEN", "VIOLET"] else get_color(num)
 
                         formatted.append({
                             "period": period,
                             "number": num,
-                            "size": actual_size,
-                            "color": actual_color
+                            "size": size,
+                            "color": color
                         })
 
             if formatted:
-                return formatted[:TOTAL_PAGES * RECORDS_PER_PAGE]
+                # ৫০ পেজের জন্য সর্বোচ্চ ৫০০টি লাইভ মার্কেট রেকর্ড
+                return formatted[:500]
     except Exception as e:
         logger.error(f"API Fetch Error: {e}")
     return []
 
 # =========================================================
-# PREDICTION ENGINE (SKIP PAGE 1-2, SEARCH PAGES 3-50)
+# PREDICTION ENGINE (SKIP PAGE 1 & 2, SEARCH PAGE 3-50)
 # =========================================================
 def calculate_prediction(market_records):
     """
-    ১. সর্বশেষ দুটি সংখ্যা t1, t2 নেওয়া হবে।
-    ২. পেজ ১ ও ২ (প্রথম ২০টি রেকর্ড) বাদ দিয়ে পেজ ৩ (ইন্ডেক্স ২০) থেকে পেজ ৫০ পর্যন্ত সিকোয়েন্স খোঁজা হবে।
-    ৩. সিকোয়েন্স মিললে তার উপরের (i-1) এবং নিচের (i+2) সংখ্যার ভিত্তিতে কালার/সাইজ/সংখ্যা প্রেডিকশন হবে।
+    ১. টপের দুটি সংখ্যা t1, t2 নেওয়া হবে।
+    ২. পেজ ১ ও ২ (প্রথম ২০টি রেকর্ড) বাদ দিয়ে পেজ ৩ (ইন্ডেক্স ২০) থেকে পেজ ৫০ পর্যন্ত খোঁজা হবে।
+    ৩. সিকোয়েন্স মিললে তার উপরের (i-1) এবং নিচের (i+2) সংখ্যার ভিত্তিতে কালার/সাইজ প্রেডিকশন হবে।
     """
     if len(market_records) < 25:
         return {"size": "--", "num": "--", "color": "--"}
@@ -197,7 +172,7 @@ def calculate_prediction(market_records):
     t2 = market_records[1]["number"]
 
     found_idx = -1
-    # প্রথম ২০টি ডাটা (পেজ ১ এবং পেজ ২) সম্পূর্ণ বাদ দিয়ে ইন্ডেক্স ২০ থেকে পেজ ৫০ পর্যন্ত লুপ
+    # পেজ ১ এবং পেজ ২ সম্পূর্ণ বাদ (প্রথম ২০টি রেকর্ড বাদ দিয়ে ইন্ডেক্স ২০ থেকে খোঁজা শুরু)
     for i in range(20, len(market_records) - 2):
         curr_pair = (market_records[i]["number"], market_records[i + 1]["number"])
         if curr_pair == (t1, t2) or curr_pair == (t2, t1):
@@ -206,10 +181,8 @@ def calculate_prediction(market_records):
                 break
 
     if found_idx == -1:
-        # সিকোয়েন্স না পাওয়া গেলে অল্টারনেট ডিফল্ট প্রেডিকশন
-        def_color = "VIOLET" if t1 in VIOLET_NUMBERS else ("RED" if t1 % 2 == 0 else "GREEN")
-        def_size = "BIG" if t1 >= 5 else "SMALL"
-        return {"size": def_size, "num": f"{t1},{t2}", "color": def_color}
+        def_color = "VIOLET" if t1 in VIOLET_NUMBERS else "RED"
+        return {"size": "BIG", "num": f"{t1},{t2}", "color": def_color}
 
     n_above = market_records[found_idx - 1]["number"]
     n_below = market_records[found_idx + 2]["number"]
@@ -231,7 +204,7 @@ def calculate_prediction(market_records):
     }
 
 # =========================================================
-# UI KEYBOARD BUILDER (50 PAGES FULL SUPPORT)
+# UI KEYBOARD DESIGN (50 PAGES SUPPORT & COMPLETE DESIGN)
 # =========================================================
 def create_market_markup(page: int = 1):
     markup = types.InlineKeyboardMarkup(row_width=4)
@@ -252,7 +225,7 @@ def create_market_markup(page: int = 1):
     timer_text = f"⏳ {to_vip(str(remaining).zfill(2))}S [{progress_bar}]"
     markup.row(types.InlineKeyboardButton(timer_text, callback_data="none"))
 
-    # ৩. প্রেডিকশন বক্স
+    # ৩. প্রেডিকশন বক্স: শুধু প্রেডিকশন ভ্যালু
     pred = state.current_prediction
     s_val = to_vip(pred['size']) if pred['size'] != "--" else "--"
     n_val = to_vip(pred['num']) if pred['num'] != "--" else "--"
@@ -265,8 +238,8 @@ def create_market_markup(page: int = 1):
 
     # ৪. মার্কেট ডাটা টেবিল (প্রতি পেজে ১০টি সারি)
     page = max(1, min(TOTAL_PAGES, page))
-    start_idx = (page - 1) * RECORDS_PER_PAGE
-    end_idx = start_idx + RECORDS_PER_PAGE
+    start_idx = (page - 1) * 10
+    end_idx = start_idx + 10
     records = state.market_data[start_idx:end_idx]
 
     for item in records:
@@ -284,8 +257,8 @@ def create_market_markup(page: int = 1):
         b4 = types.InlineKeyboardButton(f"{outcome}", callback_data="none")
         markup.row(b1, b2, b3, b4)
 
-    # স্লট ফাঁকা থাকলে খালি সারি ফিল করা
-    remaining_rows = RECORDS_PER_PAGE - len(records)
+    # স্লট পূর্ণ না হলে খালি সারি
+    remaining_rows = 10 - len(records)
     for _ in range(remaining_rows):
         markup.row(
             types.InlineKeyboardButton("-", callback_data="none"),
@@ -309,7 +282,7 @@ def create_market_markup(page: int = 1):
     return markup
 
 # =========================================================
-# REAL-TIME BACKGROUND THREAD & JAC OUTCOME CHECKER
+# REAL-TIME BACKGROUND THREAD & 3-LETTER JAC LOGIC
 # =========================================================
 def real_time_market_loop():
     last_fetched_period = ""
@@ -335,14 +308,14 @@ def real_time_market_loop():
                         state.current_period = next_period_str
 
                         # ফলাফল নির্ধারণ (JAC / WIN / LOSS)
-                        for rec in data[:6]:
+                        for rec in data[:5]:
                             p = rec["period"]
                             if p in state.prediction_history and p not in state.win_loss_records:
                                 hist = state.prediction_history[p]
                                 pred_s = hist.get("size")
                                 pred_c = hist.get("color")
                                 pred_num_str = hist.get("num", "")
-
+                                
                                 act_s = rec["size"]
                                 act_c = rec["color"]
                                 act_n = rec["number"]
@@ -353,7 +326,7 @@ def real_time_market_loop():
                                     if x.isdigit():
                                         pred_nums.append(int(x))
 
-                                # ১. নম্বর সরাসরি মিললে ৩ অক্ষরের জ্যাকপট 'JAC'
+                                # ১. নম্বর মিলে গেলে ৩ অক্ষরের জ্যাকপট 'JAC'
                                 if act_n in pred_nums:
                                     state.win_loss_records[p] = "JAC"
                                 # ২. সাইজ অথবা কালার মিললে 'WIN' (VIOLET সহ)
@@ -363,7 +336,7 @@ def real_time_market_loop():
                                 else:
                                     state.win_loss_records[p] = "LOSS"
 
-                        # নতুন প্রেডিকশন জেনারেশন (স্কিপ পেজ ১-২ অ্যালগরিদম)
+                        # নতুন প্রেডিকশন তৈরি
                         new_pred = calculate_prediction(state.market_data)
                         state.current_prediction = {
                             "period": next_period_str,
@@ -381,7 +354,7 @@ def real_time_market_loop():
 
             state.clean_old_records()
 
-            # অ্যাক্টিভ চ্যাট মেসেজ লাইভ আপডেট
+            # সক্রিয় চ্যাট আপডেট
             with state.lock:
                 chats_to_update = list(state.active_chats.items())
 
@@ -430,7 +403,7 @@ def handle_callbacks(call):
         bot.answer_callback_query(call.id)
         return
 
-    # ১ থেকে ৫০ পেজ ব্রাউজিং হ্যান্ডলার
+    # ১ থেকে ৫০ পেজ ব্রাউজিং
     if data.startswith("page_"):
         try:
             page_num = int(data.split("_")[1])
@@ -458,7 +431,7 @@ def handle_callbacks(call):
 if __name__ == "__main__":
     print("=" * 60)
     print(f"{to_vip('DARK KILLER')} | {to_vip('DRX-TM')} [ONLINE]")
-    print(f"Total Pages: {TOTAL_PAGES} (500 Records) | Endpoint: {API_URL}")
+    print(f"Total Pages: {TOTAL_PAGES} | Endpoint: {API_URL}")
     print("=" * 60)
 
     thread = threading.Thread(target=real_time_market_loop, daemon=True)
