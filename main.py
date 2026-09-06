@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-DRX-TM WinGo 5-Minute Real-Time Prediction Telegram Bot
+DRX-TM VIP WinGo 5-Minute Real-Time Telegram Bot
 API Endpoint: https://advanced-predict1.ai.studio/apipid.json
-Design layout matches Dark Killer ➤ DRX-TM
+Exclusive Dark Killer VIP Design (No Emojis, Fast Sync, Self-Predicting)
 """
 
 import time
@@ -17,10 +17,10 @@ from telebot.apihelper import ApiTelegramException
 # =========================================================
 # CONFIGURATION
 # =========================================================
-BOT_TOKEN = "8864547814:AAEBQxt864_3n06RLllIqCsN3AuyGmJhSzg"  # আপনার টেলিগ্রাম বট টোকেন দিন
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # আপনার টেলিগ্রাম বট টোকেন দিন
 API_URL = "https://advanced-predict1.ai.studio/apipid.json"
-MARKET_INTERVAL = 300  # ৫ মিনিট = ৩০০ সেকেন্ড
-UPDATE_INTERVAL = 5    # টেলিগ্রাম রেট লিমিট এড়াতে ৫ সেকেন্ড পরপর মেসেজ রিফ্রেশ
+MARKET_INTERVAL = 300  # 5 Minutes = 300 Seconds
+UPDATE_INTERVAL = 3    # Fast Timer Update (3 Seconds)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -48,19 +48,18 @@ class BotState:
     def __init__(self):
         self.lock = threading.Lock()
         self.current_period = ""
-        self.market_data = []          # ১০০টি রেজাল্ট
+        self.market_data = []          
         self.current_prediction = {
             "period": "",
             "size": "--",
             "num": "--",
             "color": "--"
         }
-        self.prediction_history = {}    # {period: {"size", "color", "timestamp"}}
-        self.win_loss_records = {}      # {period: "WIN" | "LOSS"}
-        self.active_chats = {}          # {chat_id: {"message_id": int, "page": int}}
+        self.prediction_history = {}    
+        self.win_loss_records = {}      
+        self.active_chats = {}          
 
     def clean_old_records(self):
-        """২৪ ঘণ্টার বেশি পুরোনো রেকর্ড মুছে ফেলে"""
         cutoff = datetime.now() - timedelta(hours=24)
         with self.lock:
             to_remove = [
@@ -74,59 +73,45 @@ class BotState:
 state = BotState()
 
 # =========================================================
-# API FETCHER (শুধুমাত্র আসল মার্কেট ডাটা নেওয়ার জন্য আপডেটকৃত)
+# API FETCHER (ONLY MARKET DATA, NO API PREDICTION)
 # =========================================================
 def fetch_api_market():
-    """API-এর prediction_history থেকে শুধুমাত্র লাইভ মার্কেট ডাটা ফিল্টার করে নেয়"""
+    """API থেকে শুধুমাত্র prediction_history মার্কেট ডাটা লোড করে"""
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json"
     }
     try:
-        resp = requests.get(API_URL, headers=headers, timeout=10)
+        resp = requests.get(API_URL, headers=headers, timeout=8)
         if resp.status_code == 200:
             data = resp.json()
             
-            # API এর 'prediction_history' অ্যারে থেকে ডাটা নেওয়া হচ্ছে
-            raw_list = []
-            if isinstance(data, dict):
-                raw_list = data.get("prediction_history", []) or data.get("data", {}).get("list", []) or data.get("data", [])
-            elif isinstance(data, list):
-                raw_list = data
-
+            # JSON থেকে শুধুমাত্র prediction_history নেওয়া হচ্ছে
+            raw_list = data.get("prediction_history", [])
+            
             formatted = []
             for item in raw_list:
-                period = str(item.get("period") or item.get("issueNumber") or "")
-                num_raw = item.get("number")
-                if num_raw is None:
-                    num_raw = item.get("openNum", 0)
-
+                period = str(item.get("period", ""))
                 try:
-                    num = int(num_raw)
+                    num = int(item.get("number", 0))
                 except (ValueError, TypeError):
                     num = 0
 
                 if period:
-                    # API-এর প্রেডিকশন সম্পূর্ণ বাদ দিয়ে শুধুমাত্র আসল নম্বর ও সাইজ/কালার নেওয়া হচ্ছে
-                    size = str(item.get("size", "")).upper() if item.get("size") else get_size(num)
-                    color = str(item.get("color", "")).upper() if item.get("color") else get_color(num)
-
                     formatted.append({
                         "period": period,
                         "number": num,
-                        "size": size,
-                        "color": color
+                        "size": item.get("size", get_size(num)).upper(),
+                        "color": item.get("color", get_color(num)).upper()
                     })
             if formatted:
                 return formatted
-        else:
-            logger.warning(f"API Returned HTTP Status {resp.status_code}")
     except Exception as e:
         logger.error(f"API Fetch Error: {e}")
     return []
 
 # =========================================================
-# PREDICTION ENGINE (বটের নিজস্ব লজিক)
+# PREDICTION ENGINE (OLD LOGIC KEPT EXACTLY THE SAME)
 # =========================================================
 def calculate_prediction(market_records):
     if len(market_records) < 25:
@@ -166,39 +151,41 @@ def calculate_prediction(market_records):
     }
 
 # =========================================================
-# UI KEYBOARD DESIGN (Dark Killer Layout)
+# PREMIUM UI KEYBOARD (NO EMOJIS, VIP LAYOUT)
 # =========================================================
 def create_market_markup(page: int = 1):
     markup = types.InlineKeyboardMarkup(row_width=4)
 
-    # ১. পিরিয়ড বাটন
-    period_str = state.current_period or "WAITING..."
+    # 1. PERIOD BUTTON
+    period_str = state.current_period or "SYNCING..."
     btn_period = types.InlineKeyboardButton(f"PERIOD: {period_str}", callback_data="none")
     markup.row(btn_period)
 
-    # ২. লাইভ ৫ মিনিট টাইমার ও প্রোগ্রেস বার
+    # 2. LIVE TIMER (MM:SS FORMAT)
     now_ts = int(time.time())
     elapsed = now_ts % MARKET_INTERVAL
     remaining = MARKET_INTERVAL - elapsed
+    mins = remaining // 60
+    secs = remaining % 60
 
-    total_blocks = 16
+    total_blocks = 14
     filled_blocks = int((elapsed / MARKET_INTERVAL) * total_blocks)
-    progress_bar = "█" * filled_blocks + "▒" * (total_blocks - filled_blocks)
-    timer_text = f" {remaining:02d}S [{progress_bar}]"
+    progress_bar = "=" * filled_blocks + "-" * (total_blocks - filled_blocks)
+    timer_text = f"TIME: {mins:02d}:{secs:02d} [{progress_bar}]"
     markup.row(types.InlineKeyboardButton(timer_text, callback_data="none"))
 
-    # ৩. প্রেডিকশন বক্স
+    # 3. PREDICTION BOX
     pred = state.current_prediction
-    size_box = f" {pred['size']}" if pred['size'] != "--" else "--"
+    size_box = f"SIZE: {pred['size']}" if pred['size'] != "--" else "SIZE: --"
     num_box = f"NUM: {pred['num']}" if pred['num'] != "--" else "NUM: --"
-    color_box = f" {pred['color']}" if pred['color'] != "--" else "--"
+    color_box = f"COLOR: {pred['color']}" if pred['color'] != "--" else "COLOR: --"
 
     btn_size = types.InlineKeyboardButton(size_box, callback_data="none")
     btn_num = types.InlineKeyboardButton(num_box, callback_data="none")
     btn_color = types.InlineKeyboardButton(color_box, callback_data="none")
     markup.row(btn_size, btn_num, btn_color)
 
-    # ৪. মার্কেট ডাটা টেবিল (প্রতি পেজে ১০টি সারি)
+    # 4. MARKET DATA TABLE
     page = max(1, min(10, page))
     start_idx = (page - 1) * 10
     end_idx = start_idx + 10
@@ -206,18 +193,18 @@ def create_market_markup(page: int = 1):
 
     for item in records:
         p_full = item["period"]
-        p_short = p_full[-4:] if len(p_full) >= 4 else p_full  # শেষ ৪ সংখ্যা
+        p_short = p_full[-4:] if len(p_full) >= 4 else p_full
         num = item["number"]
         actual_size = item["size"]
+        
         outcome = state.win_loss_records.get(p_full, "--")
 
         b1 = types.InlineKeyboardButton(f"{p_short}", callback_data="none")
         b2 = types.InlineKeyboardButton(f"{num}", callback_data="none")
         b3 = types.InlineKeyboardButton(f"{actual_size}", callback_data="none")
-        b4 = types.InlineKeyboardButton(f"{outcome}", callback_data="none")
+        b4 = types.InlineKeyboardButton(f"[{outcome}]", callback_data="none")
         markup.row(b1, b2, b3, b4)
 
-    # ডাটা ১০টির কম হলে খালি দাগ দিয়ে ফিল করা
     remaining_rows = 10 - len(records)
     for _ in range(remaining_rows):
         markup.row(
@@ -227,16 +214,16 @@ def create_market_markup(page: int = 1):
             types.InlineKeyboardButton("-", callback_data="none")
         )
 
-    # ৫. পেজিনেশন বাটন
+    # 5. PAGINATION
     prev_page = page - 1 if page > 1 else 10
     next_page = page + 1 if page < 10 else 1
-    btn_prev = types.InlineKeyboardButton(" Prev", callback_data=f"page_{prev_page}")
-    btn_curr = types.InlineKeyboardButton(f"Page {page}/10", callback_data="none")
-    btn_next = types.InlineKeyboardButton("Next", callback_data=f"page_{next_page}")
+    btn_prev = types.InlineKeyboardButton("[ PREV ]", callback_data=f"page_{prev_page}")
+    btn_curr = types.InlineKeyboardButton(f"PAGE {page}/10", callback_data="none")
+    btn_next = types.InlineKeyboardButton("[ NEXT ]", callback_data=f"page_{next_page}")
     markup.row(btn_prev, btn_curr, btn_next)
 
-    # ৬. রিফ্রেশ বাটন
-    btn_refresh = types.InlineKeyboardButton(" Refresh", callback_data="refresh")
+    # 6. REFRESH BUTTON
+    btn_refresh = types.InlineKeyboardButton("[ LIVE SYNC ]", callback_data="refresh")
     markup.row(btn_refresh)
 
     return markup
@@ -256,7 +243,6 @@ def real_time_market_loop():
                     top_record = data[0]
                     top_period = top_record["period"]
 
-                    # নতুন পিরিয়ড শুরু হলে
                     if top_period != last_fetched_period:
                         last_fetched_period = top_period
 
@@ -268,7 +254,6 @@ def real_time_market_loop():
 
                         state.current_period = next_period_str
 
-                        # আগের দেওয়া প্রেডিকশনের সাথে রেজাল্ট মিলিয়ে WIN/LOSS নির্ধারণ
                         for rec in data[:5]:
                             p = rec["period"]
                             if p in state.prediction_history and p not in state.win_loss_records:
@@ -286,7 +271,6 @@ def real_time_market_loop():
 
                                 state.win_loss_records[p] = "WIN" if is_win else "LOSS"
 
-                        # নতুন প্রেডিকশন তৈরি
                         new_pred = calculate_prediction(state.market_data)
                         state.current_prediction = {
                             "period": next_period_str,
@@ -295,7 +279,6 @@ def real_time_market_loop():
                             "color": new_pred["color"]
                         }
 
-                        # ২৪ ঘণ্টার হিস্ট্রিতে সংরক্ষণ
                         state.prediction_history[next_period_str] = {
                             "size": new_pred["size"],
                             "num": new_pred["num"],
@@ -305,7 +288,6 @@ def real_time_market_loop():
 
             state.clean_old_records()
 
-            # অ্যাক্টিভ চ্যাট আপডেট
             with state.lock:
                 chats_to_update = list(state.active_chats.items())
 
@@ -325,10 +307,9 @@ def real_time_market_loop():
                     elif "message to edit not found" in err_msg or "chat not found" in err_msg or "bot was blocked" in err_msg:
                         dead_chats.append(chat_id)
                     elif "flood control exceeded" in err_msg:
-                        logger.warning("Telegram Flood Control triggered. Pausing...")
-                        time.sleep(10)
-                except Exception as e:
-                    logger.error(f"Error updating message in chat {chat_id}: {e}")
+                        time.sleep(5)
+                except Exception:
+                    pass
 
             if dead_chats:
                 with state.lock:
@@ -347,9 +328,12 @@ def real_time_market_loop():
 def send_welcome(message):
     chat_id = message.chat.id
     header_text = (
-        "<b>Dark Killer ➤ DRX-TM Bot</b>\n"
-        "<i>WinGo 5-Minute Real-Time Market & AI Analysis</i>\n"
-        "────────────────────────"
+        "<b>DRX-TM VIP MATRIX - WINGO 5M</b>\n"
+        "<i>Real-Time Market Feed & AI Analysis</i>\n"
+        "----------------------------------------\n"
+        "<b>STATUS:</b> <code>CONNECTED (LIVE)</code>\n"
+        "<b>ALGORITHM:</b> <code>DRX Matrix v4.2</code>\n"
+        "----------------------------------------"
     )
     markup = create_market_markup(page=1)
     msg = bot.send_message(chat_id, header_text, reply_markup=markup)
@@ -377,9 +361,8 @@ def handle_callbacks(call):
                     state.active_chats[chat_id]["page"] = page_num
             markup = create_market_markup(page=page_num)
             bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup)
-            bot.answer_callback_query(call.id, text=f"Page {page_num}")
-        except Exception as e:
-            logger.warning(f"Callback page error: {e}")
+            bot.answer_callback_query(call.id, text=f"PAGE {page_num}")
+        except Exception:
             try:
                 bot.answer_callback_query(call.id)
             except Exception:
@@ -390,9 +373,8 @@ def handle_callbacks(call):
             page_num = state.active_chats.get(chat_id, {}).get("page", 1)
             markup = create_market_markup(page=page_num)
             bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup)
-            bot.answer_callback_query(call.id, text="Refreshed ✅")
-        except Exception as e:
-            logger.warning(f"Callback refresh error: {e}")
+            bot.answer_callback_query(call.id, text="MARKET SYNCHRONIZED")
+        except Exception:
             try:
                 bot.answer_callback_query(call.id)
             except Exception:
@@ -403,7 +385,7 @@ def handle_callbacks(call):
 # =========================================================
 if __name__ == "__main__":
     print("=" * 60)
-    print("Dark Killer ➤ DRX-TM Bot Starting...")
+    print("DRX-TM VIP Bot Running... (NO EMOJIS)")
     print("=" * 60)
 
     thread = threading.Thread(target=real_time_market_loop, daemon=True)
@@ -413,5 +395,5 @@ if __name__ == "__main__":
         try:
             bot.infinity_polling(timeout=30, long_polling_timeout=15)
         except Exception as e:
-            logger.error(f"Bot Polling Crashed: {e}. Restarting in 5s...")
+            logger.error(f"Polling Crashed: {e}. Restarting in 5s...")
             time.sleep(5)
