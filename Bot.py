@@ -26,7 +26,7 @@ from telebot import types
 # =========================================================
 # CONFIGURATION
 # =========================================================
-BOT_TOKEN = "8864547814:AAEBQxt864_3n06RLllIqCsN3AuyGmJhSzg"
+BOT_TOKEN = "8949748635:AAF9w3mFRx2fqcE6AslsrR7AUuNJQzqB-PA"
 API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
 MARKET_INTERVAL = 30   # ৩০ সেকেন্ড মার্কেট
 TOTAL_PAGES = 50       # ৫০ পেজ (প্রতি পেজে ১০টি করে ৫০০ রেকর্ড)
