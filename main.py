@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-DRX-TM WinGo 5-Minute Real-Time Prediction Telegram Bot
-Layout: Original Dark Killer ➤ DRX-TM Clean UI
-API: https://advanced-predict1.ai.studio/apipid.json
+DRX-TM WinGo 5-Minute Pure Real-Time Market Viewer
+API Endpoint: https://advanced-predict1.ai.studio/apipid.json
+Features: 50 Pages Pagination, Real-Time Market Feed, Zero Prediction/Results
 """
 
 import time
@@ -10,17 +10,17 @@ import json
 import logging
 import threading
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 import telebot
 from telebot import types
 
 # =========================================================
 # CONFIGURATION
 # =========================================================
-BOT_TOKEN = "8949748635:AAF9w3mFRx2fqcE6AslsrR7AUuNJQzqB-PA"
+BOT_TOKEN = "8864547814:AAEBQxt864_3n06RLllIqCsN3AuyGmJhSzg"
 API_URL = "https://advanced-predict1.ai.studio/apipid.json"
 MARKET_INTERVAL = 300  # ৫ মিনিট = ৩০০ সেকেন্ড
-TOTAL_PAGES = 50       # ৫০ পেজ নেভিগেশন
+TOTAL_PAGES = 50       # টোটাল ৫০ পেজ
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -28,7 +28,25 @@ logger = logging.getLogger(__name__)
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
 # =========================================================
-# RULES DEFINITION (0 & 5 = VIOLET)
+# VIP FONT ENGINE (𝐀𝐁𝐂... 𝟎𝟏𝟐...)
+# =========================================================
+def to_vip(text: str) -> str:
+    """টেক্সটকে বোল্ড ভিআইপি ফন্টে রূপান্তর করে"""
+    res = []
+    for ch in str(text):
+        code = ord(ch)
+        if 65 <= code <= 90:     # A-Z -> 𝐀-𝐙
+            res.append(chr(0x1D400 + (code - 65)))
+        elif 97 <= code <= 122:  # a-z -> 𝐚-𝐳
+            res.append(chr(0x1D41A + (code - 97)))
+        elif 48 <= code <= 57:   # 0-9 -> 𝟎-𝟗
+            res.append(chr(0x1D7CE + (code - 48)))
+        else:
+            res.append(ch)
+    return "".join(res)
+
+# =========================================================
+# RULES DEFINITION (0 ও 5 = VIOLET)
 # =========================================================
 VIOLET_NUMBERS = {0, 5}
 RED_NUMBERS = {2, 4, 6, 8}
@@ -45,38 +63,19 @@ def get_size(num: int) -> str:
     return "BIG" if num in BIG_NUMBERS else "SMALL"
 
 # =========================================================
-# STATE & 24-HOUR RETENTION
+# STATE MANAGEMENT
 # =========================================================
 class BotState:
     def __init__(self):
         self.lock = threading.Lock()
         self.current_period = ""
-        self.market_data = []          # ৫০০টি রেকর্ড
-        self.current_prediction = {
-            "period": "",
-            "size": "BIG",
-            "num": "--",
-            "color": "RED"
-        }
-        self.prediction_history = {}    # {period: {"size", "num", "color", "timestamp"}}
-        self.win_loss_records = {}      # {period: "JAC" | "WIN" | "LOSS"}
+        self.market_data = []          # ৫০ পেজের মার্কেট ডাটা (সর্বোচ্চ ৫০০টি)
         self.active_chats = {}          # {chat_id: {"message_id": int, "page": int}}
-
-    def clean_old_records(self):
-        cutoff = datetime.now() - timedelta(hours=24)
-        with self.lock:
-            to_remove = [
-                p for p, data in self.prediction_history.items()
-                if data.get("timestamp", datetime.now()) < cutoff
-            ]
-            for p in to_remove:
-                self.prediction_history.pop(p, None)
-                self.win_loss_records.pop(p, None)
 
 state = BotState()
 
 # =========================================================
-# API PARSER & FETCHER
+# API PARSER & FETCHER (UP TO 500 RECORDS)
 # =========================================================
 def parse_single_record(item):
     period = ""
@@ -156,88 +155,46 @@ def fetch_api_market():
                     formatted.append(rec)
 
             if formatted:
+                # ৫০ পেজের জন্য সর্বোচ্চ ৫০০টি লাইভ রেকর্ড নেওয়া হবে
                 return formatted[:500]
     except Exception as e:
         logger.error(f"API Fetch Error: {e}")
     return []
 
 # =========================================================
-# PREDICTION ENGINE (SKIP PAGE 1-2, SEARCH PAGE 3-50)
-# =========================================================
-def calculate_prediction(market_records):
-    if len(market_records) < 25:
-        return {"size": "BIG", "num": "3,8", "color": "RED"}
-
-    t1 = market_records[0]["number"]
-    t2 = market_records[1]["number"]
-
-    found_idx = -1
-    # ১ম ও ২য় পেজ (প্রথম ২০টি ডাটা) সম্পূর্ণ বাদ দিয়ে ইন্ডেক্স ২০ থেকে পেজ ৫০ পর্যন্ত সার্চ
-    for i in range(20, len(market_records) - 2):
-        curr_pair = (market_records[i]["number"], market_records[i + 1]["number"])
-        if curr_pair == (t1, t2) or curr_pair == (t2, t1):
-            if i - 1 >= 0 and i + 2 < len(market_records):
-                found_idx = i
-                break
-
-    if found_idx == -1:
-        # প্যাটার্ন সরাসরি না পেলে অলটারনেট ভ্যালু
-        def_color = "VIOLET" if t1 in VIOLET_NUMBERS else ("RED" if t1 in RED_NUMBERS else "GREEN")
-        return {"size": get_size(t1), "num": f"{t1},{t2}", "color": def_color}
-
-    n_above = market_records[found_idx - 1]["number"]
-    n_below = market_records[found_idx + 2]["number"]
-
-    c_above = get_color(n_above)
-    c_below = get_color(n_below)
-    pred_color = c_above if c_above == c_below else c_above
-
-    s_above = get_size(n_above)
-    s_below = get_size(n_below)
-    pred_size = s_above if s_above == s_below else s_above
-
-    pred_num = f"{n_above},{n_below}"
-
-    return {
-        "size": pred_size,
-        "num": pred_num,
-        "color": pred_color
-    }
-
-# =========================================================
-# UI KEYBOARD DESIGN (ORIGINAL DARK KILLER)
+# UI KEYBOARD DESIGN (EXACT SAME DESIGN PRESERVED)
 # =========================================================
 def create_market_markup(page: int = 1):
     markup = types.InlineKeyboardMarkup(row_width=4)
 
-    # ১. পিরিয়ড বাটন
+    # ১. পিরিয়ড বাটন
     period_str = state.current_period or "WAITING..."
-    btn_period = types.InlineKeyboardButton(f"PERIOD: {period_str}", callback_data="none")
+    btn_period = types.InlineKeyboardButton(f"{to_vip('PERIOD')}: {to_vip(period_str)}", callback_data="none")
     markup.row(btn_period)
 
-    # ২. লাইভ ৫ মিনিট টাইমার ও ক্লিন প্রোগ্রেস বার
+    # ২. ৫ মিনিট টাইমার ও প্রোগ্রেস বার
     now_ts = int(time.time())
     elapsed = now_ts % MARKET_INTERVAL
     remaining = MARKET_INTERVAL - elapsed
 
-    total_blocks = 15
+    total_blocks = 20
     filled_blocks = int((elapsed / MARKET_INTERVAL) * total_blocks)
-    progress_bar = "■" * filled_blocks + "□" * (total_blocks - filled_blocks)
-    timer_text = f"⏳ {remaining:02d}S [{progress_bar}]"
+    progress_bar = "█" * filled_blocks + "▒" * (total_blocks - filled_blocks)
+    timer_text = f"⏳ {to_vip(str(remaining).zfill(2))}S [{progress_bar}]"
     markup.row(types.InlineKeyboardButton(timer_text, callback_data="none"))
 
-    # ৩. তিনটি ক্লিন প্রেডিকশন বক্স: SIZE | NUM | COLOR
-    pred = state.current_prediction
-    s_val = pred.get('size', 'BIG')
-    n_val = pred.get('num', '--')
-    c_val = pred.get('color', 'RED')
+    # ৩. সর্বশেষ ড্র হওয়া মার্কেট ডাটা বক্স (ডিজাইন সম্পূর্ণ এক)
+    latest = state.market_data[0] if state.market_data else None
+    s_val = to_vip(latest['size']) if latest else "--"
+    n_val = to_vip(str(latest['number'])) if latest else "--"
+    c_val = to_vip(latest['color']) if latest else "--"
 
     btn_size = types.InlineKeyboardButton(f"{s_val}", callback_data="none")
     btn_num = types.InlineKeyboardButton(f"{n_val}", callback_data="none")
     btn_color = types.InlineKeyboardButton(f"{c_val}", callback_data="none")
     markup.row(btn_size, btn_num, btn_color)
 
-    # ৪. মার্কেট ডাটা টেবিল (প্রতি পেজে ১০টি সারি)
+    # ৪. মার্কেট ডাটা টেবিল (প্রতি পেজে ১০টি সারি: পিরিয়ড, নম্বর, সাইজ, কালার)
     page = max(1, min(TOTAL_PAGES, page))
     start_idx = (page - 1) * 10
     end_idx = start_idx + 10
@@ -248,16 +205,15 @@ def create_market_markup(page: int = 1):
         p_short = p_full[-4:] if len(p_full) >= 4 else p_full
         num = item["number"]
         actual_size = item["size"]
+        actual_color = item["color"]
 
-        outcome = state.win_loss_records.get(p_full, "--")
-
-        b1 = types.InlineKeyboardButton(f"{p_short}", callback_data="none")
-        b2 = types.InlineKeyboardButton(f"{num}", callback_data="none")
-        b3 = types.InlineKeyboardButton(f"{actual_size}", callback_data="none")
-        b4 = types.InlineKeyboardButton(f"{outcome}", callback_data="none")
+        b1 = types.InlineKeyboardButton(f"{to_vip(p_short)}", callback_data="none")
+        b2 = types.InlineKeyboardButton(f"{to_vip(str(num))}", callback_data="none")
+        b3 = types.InlineKeyboardButton(f"{to_vip(actual_size)}", callback_data="none")
+        b4 = types.InlineKeyboardButton(f"{to_vip(actual_color)}", callback_data="none")
         markup.row(b1, b2, b3, b4)
 
-    # ডাটা ১০টির কম হলে খালি দাগ
+    # স্লট পূর্ণ না হলে খালি সারি
     remaining_rows = 10 - len(records)
     for _ in range(remaining_rows):
         markup.row(
@@ -267,22 +223,22 @@ def create_market_markup(page: int = 1):
             types.InlineKeyboardButton("-", callback_data="none")
         )
 
-    # ৫. পেজিনেশন বাটন (১ থেকে ৫০ পেজ সোয়াইপ)
+    # ৫. পেজিনেশন বাটন (১ থেকে ৫০ পেজ সোয়াইপ)
     prev_page = page - 1 if page > 1 else TOTAL_PAGES
     next_page = page + 1 if page < TOTAL_PAGES else 1
-    btn_prev = types.InlineKeyboardButton("◀️ PREV", callback_data=f"page_{prev_page}")
-    btn_curr = types.InlineKeyboardButton(f"PAGE {page}/{TOTAL_PAGES}", callback_data="none")
-    btn_next = types.InlineKeyboardButton("NEXT ▶️", callback_data=f"page_{next_page}")
+    btn_prev = types.InlineKeyboardButton(f"{to_vip('PREV')}", callback_data=f"page_{prev_page}")
+    btn_curr = types.InlineKeyboardButton(f"{to_vip('PAGE')} {to_vip(str(page))}/{to_vip(str(TOTAL_PAGES))}", callback_data="none")
+    btn_next = types.InlineKeyboardButton(f"{to_vip('NEXT')}", callback_data=f"page_{next_page}")
     markup.row(btn_prev, btn_curr, btn_next)
 
     # ৬. রিফ্রেশ বাটন
-    btn_refresh = types.InlineKeyboardButton("🔄 REFRESH", callback_data="refresh")
+    btn_refresh = types.InlineKeyboardButton(f"{to_vip('REFRESH')}", callback_data="refresh")
     markup.row(btn_refresh)
 
     return markup
 
 # =========================================================
-# REAL-TIME BACKGROUND THREAD & JAC / WIN LOGIC
+# REAL-TIME BACKGROUND THREAD (PURE MARKET SYNC)
 # =========================================================
 def real_time_market_loop():
     last_fetched_period = ""
@@ -307,54 +263,7 @@ def real_time_market_loop():
 
                         state.current_period = next_period_str
 
-                        # ফলাফল নির্ধারণ (JAC / WIN / LOSS)
-                        for rec in data[:8]:
-                            p = rec["period"]
-                            if p in state.prediction_history and p not in state.win_loss_records:
-                                hist = state.prediction_history[p]
-                                pred_s = hist.get("size")
-                                pred_c = hist.get("color")
-                                pred_num_str = hist.get("num", "")
-                                
-                                act_s = rec["size"]
-                                act_c = rec["color"]
-                                act_n = rec["number"]
-
-                                pred_nums = []
-                                for x in pred_num_str.split(","):
-                                    x = x.strip()
-                                    if x.isdigit():
-                                        pred_nums.append(int(x))
-
-                                # ১. নম্বর মিলে গেলে ৩ অক্ষরের JAC
-                                if act_n in pred_nums:
-                                    state.win_loss_records[p] = "JAC"
-                                # ২. সাইজ অথবা কালার মিললে WIN
-                                elif (pred_s and pred_s == act_s) or (pred_c and pred_c == act_c):
-                                    state.win_loss_records[p] = "WIN"
-                                # ৩. কোনোটাই না মিললে LOSS
-                                else:
-                                    state.win_loss_records[p] = "LOSS"
-
-                        # নতুন প্রেডিকশন
-                        new_pred = calculate_prediction(state.market_data)
-                        state.current_prediction = {
-                            "period": next_period_str,
-                            "size": new_pred["size"],
-                            "num": new_pred["num"],
-                            "color": new_pred["color"]
-                        }
-
-                        state.prediction_history[next_period_str] = {
-                            "size": new_pred["size"],
-                            "num": new_pred["num"],
-                            "color": new_pred["color"],
-                            "timestamp": datetime.now()
-                        }
-
-            state.clean_old_records()
-
-            # চ্যাটে লাইভ ভিউ ও টাইমার আপডেট
+            # অ্যাক্টিভ চ্যাটে লাইভ মার্কেট রেন্ডার
             with state.lock:
                 chats_to_update = list(state.active_chats.items())
 
@@ -384,8 +293,8 @@ def real_time_market_loop():
 def send_welcome(message):
     chat_id = message.chat.id
     header_text = (
-        "<b>Dark Killer ➤ DRX-TM Bot</b>\n"
-        "<i>WinGo 5-Minute Real-Time Market & Analysis</i>\n"
+        f"<b>{to_vip('DARK KILLER')} | {to_vip('DRX-TM')}</b>\n"
+        f"<i>{to_vip('WINGO 5-MIN MARKET')}</i>\n"
         "────────────────────────"
     )
     markup = create_market_markup(page=1)
@@ -403,7 +312,7 @@ def handle_callbacks(call):
         bot.answer_callback_query(call.id)
         return
 
-    # ১ থেকে ৫০ পেজ সুইচিং
+    # ১ থেকে ৫০ পেজ ব্রাউজিং
     if data.startswith("page_"):
         try:
             page_num = int(data.split("_")[1])
@@ -412,7 +321,7 @@ def handle_callbacks(call):
                     state.active_chats[chat_id]["page"] = page_num
             markup = create_market_markup(page=page_num)
             bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup)
-            bot.answer_callback_query(call.id, text=f"Page {page_num}")
+            bot.answer_callback_query(call.id, text=f"{to_vip('PAGE')} {page_num}")
         except Exception:
             bot.answer_callback_query(call.id)
 
@@ -421,7 +330,7 @@ def handle_callbacks(call):
             page_num = state.active_chats.get(chat_id, {}).get("page", 1)
             markup = create_market_markup(page=page_num)
             bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup)
-            bot.answer_callback_query(call.id, text="Refreshed ✅")
+            bot.answer_callback_query(call.id, text=f"{to_vip('REFRESHED')}")
         except Exception:
             bot.answer_callback_query(call.id)
 
@@ -430,7 +339,7 @@ def handle_callbacks(call):
 # =========================================================
 if __name__ == "__main__":
     print("=" * 60)
-    print("Dark Killer ➤ DRX-TM Bot [ONLINE]")
+    print(f"{to_vip('DARK KILLER')} | {to_vip('DRX-TM')} [PURE MARKET ONLINE]")
     print(f"Total Pages: {TOTAL_PAGES} | Endpoint: {API_URL}")
     print("=" * 60)
 
