@@ -77,7 +77,7 @@ from telethon.tl.types import UpdateGroupCallParticipants, InputGroupCall
 # =========================================================
 # ২. মূল কনফিগারেশন এবং ক্রেডেনশিয়ালস
 # =========================================================
-BOT_TOKEN = "8864547814:AAEBQxt864_3n06RLllIqCsN3AuyGmJhSzg"
+BOT_TOKEN = "8995269165:AAGzs3OBZsa9-f-OETfFjFQN9k0M4QjbZCU"
 
 # APIs & Intervals
 API_URL_5M = "https://advanced-predict1.ai.studio/apipid.json"
