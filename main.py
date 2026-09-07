@@ -1,536 +1,292 @@
 # -*- coding: utf-8 -*-
-"""
-DRX-TM WinGo Dual-Market (30S & 5M) Professional Prediction Telegram Bot
-Features:
-  - Main Menu for Market Selection (30 Seconds & 5 Minutes)
-  - Independent State Management & API Fetching for both markets
-  - Zero Emoji Clean Professional UI (VIP Font)
-  - Engine 1: RED PRO WINNER (Sequence Pattern)
-  - Engine 2: GREEN PRO WINNER (Markov Transition)
-  - 50-Pages Dynamic Pagination
-"""
-
 import time
-import json
-import logging
+import random
+import re
 import threading
 import requests
+import asyncio
+from datetime import datetime, timedelta, timezone
 from collections import Counter
-from datetime import datetime, timedelta
+
 import telebot
 from telebot import types
+from telethon import TelegramClient, events
+from telethon.sessions import StringSession
+from telethon.tl.functions.phone import CreateGroupCallRequest, EditGroupCallParticipantRequest
+from telethon.tl.types import UpdateGroupCallParticipants
 
-# =========================================================
-# CONFIGURATION
-# =========================================================
+# ================= কনফিগারেশন =================
+# আপনার সিগন্যাল বটের টোকেন
 BOT_TOKEN = "8864547814:AAEBQxt864_3n06RLllIqCsN3AuyGmJhSzg"
 
-# APIs & Intervals
-API_URL_5M = "https://advanced-predict1.ai.studio/apipid.json"
-API_URL_30S = "https://sh-tim-faruk-vai.ai.studio/api/apipid-tiger-pro.json"
+# আপনার ইউজারবটের (রিয়েল আইডি) ক্রেডেনশিয়াল
+API_ID = 32054831
+API_HASH = '89fc23d0ff6763a53004996fe0c6cab2'
+SESSION_STRING = '1BVtsOMMBuz49a2_210in_8j3mmQYJ1OBm2w2niDhPuTm83mfeVuXoXO_UhiWNxMvEGPhaKgwHJfDvPY8YgA_OuB0jT91aNvQy-2SV49fwWZqeqgtjra0MubJ7M0EElD1nQ2gDVCmnuKNEzJ57lKkQ8pSLf99qgvO1r6xUB1J-vj-OAfJYFLHPjb34fyOos-HjzagA6CibhLy_tEp-gzFQyF74uXI5ftt40-JrZG8CbqPVvnI8sDG-hpj_7lBlrdudzZ_gZ7Fj6tKcz_TA_EI3BeTqSzthrAMeZhkbSovmzGLBTatRFMc58RVvycts5PRaM-c17-jly3-xKix1r0gcykDA_cFJQQ='
 
-MARKET_INTERVAL_5M = 300  # ৫ মিনিট = ৩০০ সেকেন্ড
-MARKET_INTERVAL_30S = 30  # ৩০ সেকেন্ড
+API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
+BD_TIMEZONE = timezone(timedelta(hours=6))
 
-TOTAL_PAGES = 50          # টোটাল ৫০ পেজ
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+# ================= স্টিকার আইডিসমূহ =================
+START_STICKER = "CAACAgUAAxkBAAICx2pgV34mvhrXYdFo074GfPCT3DxpAAIGHAACCWOZVJ54JyHk0pq6PQQ"
+WIN_STICKERS = [
+    "CAACAgUAAxkBAAICympgV_mYbYJ5o_ltYTUUBv7mKTr5AALSHAACQlWYVEhO4I8eBRYYPQQ",
+    "CAACAgUAAxkBAAIC2GpgXkSXM2Nm8xUq97L6CewvEjVuAALUHgACWhiJVBClJA3AM_g7PQQ"
+]
+LOSS_STICKER = "CAACAgUAAxkBAAICzGpgWC6gUjMbKd5TvjfoCeqHPrrtAAJOGQACxAuZVNxk4HDx8tskPQQ"
+END_STICKER = "CAACAgUAAxkBAAICx2pgV34mvhrXYdFo074GfPCT3DxpAAIGHAACCWOZVJ54JyHk0pq6PQQ"
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
-global_lock = threading.Lock()
+client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
-# =========================================================
-# VIP FONT ENGINE (𝐀𝐁𝐂... 𝟎𝟏𝟐...)
-# =========================================================
-def to_vip(text: str) -> str:
-    res = []
-    for ch in str(text):
-        code = ord(ch)
-        if 65 <= code <= 90:
-            res.append(chr(0x1D400 + (code - 65)))
-        elif 97 <= code <= 122:
-            res.append(chr(0x1D41A + (code - 97)))
-        elif 48 <= code <= 57:
-            res.append(chr(0x1D7CE + (code - 48)))
-        else:
-            res.append(ch)
-    return "".join(res)
+# ================= ইউজার ও চ্যানেল ডাটাবেস =================
+users_db = {}
+db_lock = threading.Lock()
 
-# =========================================================
-# RULES & AFFINITY DEFINITIONS
-# =========================================================
-VIOLET_NUMBERS = {0, 5}
-RED_NUMBERS = {2, 4, 6, 8}
-GREEN_NUMBERS = {1, 3, 7, 9}
-BIG_NUMBERS = {5, 6, 7, 8, 9}
-SMALL_NUMBERS = {0, 1, 2, 3, 4}
-
-GREEN_AFFINITY = {1, 3, 5, 7, 9}
-RED_AFFINITY = {0, 2, 4, 6, 8}
-
-def get_color(num: int) -> str:
-    if num in VIOLET_NUMBERS:
-        return "VIOLET"
-    return "RED" if num in RED_NUMBERS else "GREEN"
-
-def get_size(num: int) -> str:
-    return "BIG" if num in BIG_NUMBERS else "SMALL"
-
-# =========================================================
-# INDEPENDENT MARKET STATE MANAGEMENT
-# =========================================================
-class MarketState:
-    def __init__(self, interval):
-        self.interval = interval
-        self.current_period = ""
-        self.market_data = []
-
-        self.pred_red = {"period": "", "size": "--", "num": "--", "color": "--"}
-        self.history_red = {}
-        self.win_loss_red = {}
-
-        self.pred_green = {"period": "", "size": "--", "num": "--", "color": "--"}
-        self.history_green = {}
-        self.win_loss_green = {}
-
-    def clean_old_records(self):
-        cutoff = datetime.now() - timedelta(hours=24)
-        for store, hist in [(self.win_loss_red, self.history_red), (self.win_loss_green, self.history_green)]:
-            to_del = [p for p, val in hist.items() if val.get("timestamp", datetime.now()) < cutoff]
-            for p in to_del:
-                hist.pop(p, None)
-                store.pop(p, None)
-
-state_5m = MarketState(MARKET_INTERVAL_5M)
-state_30s = MarketState(MARKET_INTERVAL_30S)
-
-# Active Chats tracker: {chat_id: {"message_id": int, "market": "30S"|"5M", "mode": "RED"|"GREEN", "page": int}}
-active_chats = {}
-
-# =========================================================
-# PREDICTION ENGINES (Shared Logic)
-# =========================================================
-def calculate_red_pro_prediction(market_records):
-    if len(market_records) < 25:
-        return {"size": "--", "num": "--", "color": "--"}
-
-    t1 = market_records[0]["number"]
-    t2 = market_records[1]["number"]
-
-    found_idx = -1
-    for i in range(20, len(market_records) - 2):
-        curr_pair = (market_records[i]["number"], market_records[i + 1]["number"])
-        if curr_pair == (t1, t2) or curr_pair == (t2, t1):
-            if i - 1 >= 0 and i + 2 < len(market_records):
-                found_idx = i
-                break
-
-    if found_idx == -1:
-        n_above = (t1 + 3) % 10
-        n_below = (t2 + 7) % 10
+# ================= TIGER PRO ENGINE =================
+def calculate_tiger_pro(market_records):
+    if len(market_records) < 20:
+        return "BIG"
+    sample = market_records[:100]
+    last_num = sample[0]["number"]
+    recent_10_nums = [x["number"] for x in sample[:10]]
+    avg_10 = sum(recent_10_nums) / 10.0
+    if avg_10 > 5.0:
+        pred_size = "BIG" if recent_10_nums.count(last_num) < 3 else "SMALL"
     else:
-        n_above = market_records[found_idx - 1]["number"]
-        n_below = market_records[found_idx + 2]["number"]
+        pred_size = "SMALL" if recent_10_nums.count(last_num) < 3 else "BIG"
+    return pred_size
 
-    pair_nums = {n_above, n_below}
-
-    if pair_nums.issubset(GREEN_AFFINITY) or (9 in pair_nums and 5 in pair_nums) or (3 in pair_nums and 5 in pair_nums) or (9 in pair_nums and 3 in pair_nums):
-        pred_color = "GREEN"
-    elif pair_nums.issubset(RED_AFFINITY) or (0 in pair_nums and any(x in RED_NUMBERS for x in pair_nums)):
-        pred_color = "RED"
-    else:
-        c_above = get_color(n_above)
-        c_below = get_color(n_below)
-        pred_color = c_above if c_above == c_below else "GREEN"
-
-    if (9 in pair_nums and 5 in pair_nums) or (9 in pair_nums and 3 in pair_nums):
-        pred_size = "BIG"
-    elif n_above >= 5 and n_below >= 5:
-        pred_size = "BIG"
-    elif n_above < 5 and n_below < 5:
-        pred_size = "SMALL"
-    else:
-        avg = (n_above + n_below) / 2.0
-        pred_size = "BIG" if avg >= 4.5 else "SMALL"
-
-    return {"size": pred_size, "num": f"{n_above},{n_below}", "color": pred_color}
-
-def calculate_green_pro_prediction(market_records):
-    if len(market_records) < 15:
-        return {"size": "BIG", "num": "1,5,9", "color": "GREEN"}
-
-    sample = market_records[:150]
-    latest_num = sample[0]["number"]
-
-    transitions = [sample[idx]["number"] for idx in range(len(sample) - 1) if sample[idx + 1]["number"] == latest_num]
-    follow_up_candidates = [n for n, _ in Counter(transitions).most_common(2)]
-    
-    recent_40 = [r["number"] for r in sample[:40]]
-    hot_candidates = [n for n, _ in Counter(recent_40).most_common(3)]
-    mirror_candidate = (9 - latest_num)
-
-    predicted_pool = []
-    for c in follow_up_candidates + hot_candidates + [mirror_candidate, (latest_num + 3) % 10, (latest_num + 7) % 10]:
-        if c not in predicted_pool and 0 <= c <= 9:
-            predicted_pool.append(c)
-        if len(predicted_pool) == 3:
-            break
-
-    target_3_numbers = sorted(predicted_pool)
-    num_str = f"{target_3_numbers[0]},{target_3_numbers[1]},{target_3_numbers[2]}"
-
-    sizes_last_10 = [r["size"] for r in sample[:10]]
-    big_count = sizes_last_10.count("BIG")
-    if big_count >= 7:
-        pred_size = "SMALL"
-    elif big_count <= 3:
-        pred_size = "BIG"
-    else:
-        pred_size = "BIG" if sum(1 for n in target_3_numbers if n >= 5) >= 2 else "SMALL"
-
-    colors_last_10 = [r["color"] for r in sample[:10]]
-    green_count, red_count = colors_last_10.count("GREEN"), colors_last_10.count("RED")
-
-    if green_count > red_count:
-        pred_color = "GREEN" if (colors_last_10[0] != "GREEN" or green_count >= 6) else "RED"
-    else:
-        pred_color = "RED" if (colors_last_10[0] != "RED" or red_count >= 6) else "GREEN"
-
-    return {"size": pred_size, "num": num_str, "color": pred_color}
-
-# =========================================================
-# DATA FETCHER & OUTCOME EVALUATOR
-# =========================================================
-def fetch_api_market(url):
+# ================= API ডাটা ফেচার =================
+def fetch_latest_results():
+    headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
+    payload = {"pageNumber": 1, "pageSize": 100}
     try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        resp = requests.get(url, headers=headers, timeout=5)
-        if resp.status_code == 200:
-            data = resp.json()
-            raw_list = []
-
-            if isinstance(data, dict):
-                raw_list = data.get("prediction_history", [])
-                if not raw_list:
-                    for k in ["data", "list", "records", "rows"]:
-                        if k in data and isinstance(data[k], list):
-                            raw_list = data[k]
-                            break
-            elif isinstance(data, list):
-                raw_list = data
-
-            formatted = []
-            for item in raw_list:
-                if isinstance(item, dict):
-                    p_raw, n_raw = item.get("period"), item.get("number")
-                    if p_raw is not None and n_raw is not None:
-                        try:
-                            num = int(n_raw)
-                            s_raw, c_raw = str(item.get("size", "")).strip().upper(), str(item.get("color", "")).strip().upper()
-                            formatted.append({
-                                "period": str(p_raw).strip(),
-                                "number": num,
-                                "size": s_raw if s_raw in ["BIG", "SMALL"] else get_size(num),
-                                "color": c_raw if c_raw in ["RED", "GREEN", "VIOLET"] else get_color(num)
-                            })
-                        except:
-                            pass
-            return formatted[:500]
-    except Exception as e:
+        res = requests.post(API_URL, json=payload, headers=headers, timeout=5)
+        if res.status_code != 200:
+            res = requests.get(API_URL, headers=headers, timeout=5)
+        data = res.json()
+        
+        def extract_list(d):
+            if isinstance(d, list) and len(d)>0 and isinstance(d[0], dict) and ('issueNumber' in d[0] or 'issue' in d[0]):
+                return d
+            elif isinstance(d, dict):
+                for v in d.values():
+                    found = extract_list(v)
+                    if found: return found
+            return None
+            
+        issue_list = extract_list(data)
+        if issue_list:
+            parsed = []
+            for item in issue_list:
+                issue = str(item.get('issueNumber', item.get('issue', '')))
+                num = item.get('number', item.get('result', -1))
+                if issue and num != -1:
+                    parsed.append({"period": issue, "number": int(num)})
+            return parsed
+    except Exception:
         pass
     return []
 
-def evaluate_outcomes(data, m_state: MarketState):
-    for rec in data[:6]:
-        p, act_n, act_s, act_c = rec["period"], rec["number"], rec["size"], rec["color"]
-        
-        # RED PRO Evaluate
-        if p in m_state.history_red and p not in m_state.win_loss_red:
-            h = m_state.history_red[p]
-            pred_nums = [int(x.strip()) for x in h.get("num", "").split(",") if x.strip().isdigit()]
-            if act_n in pred_nums:
-                m_state.win_loss_red[p] = "JAC"
-            elif h.get("size") == act_s or h.get("color") == act_c:
-                m_state.win_loss_red[p] = "WIN"
-            else:
-                m_state.win_loss_red[p] = "LOSS"
-
-        # GREEN PRO Evaluate
-        if p in m_state.history_green and p not in m_state.win_loss_green:
-            h = m_state.history_green[p]
-            pred_nums = [int(x.strip()) for x in h.get("num", "").split(",") if x.strip().isdigit()]
-            if act_n in pred_nums:
-                m_state.win_loss_green[p] = "JAC"
-            elif h.get("size") == act_s or h.get("color") == act_c:
-                m_state.win_loss_green[p] = "WIN"
-            else:
-                m_state.win_loss_green[p] = "LOSS"
-
-def market_data_worker(api_url, m_state: MarketState, fetch_delay: int):
-    last_period = ""
-    while True:
+# ================= TELETHON (Userbot) ফাংশনস =================
+async def start_group_call(channel_id):
+    """অটোমেটিক চ্যানেলে লাইভ স্টার্ট করার ফাংশন"""
+    try:
         try:
-            data = fetch_api_market(api_url)
-            if data:
-                with global_lock:
-                    m_state.market_data = data
-                    top_period = data[0]["period"]
-
-                    if top_period != last_period:
-                        last_period = top_period
-                        try:
-                            next_period_str = str(int(top_period) + 1).zfill(len(top_period))
-                        except:
-                            next_period_str = f"{int(time.time() // m_state.interval) + 1}"
-                        
-                        m_state.current_period = next_period_str
-                        evaluate_outcomes(data, m_state)
-
-                        # Set New Predictions
-                        r_pred = calculate_red_pro_prediction(data)
-                        r_pred["period"] = next_period_str
-                        m_state.pred_red = r_pred
-                        m_state.history_red[next_period_str] = {**r_pred, "timestamp": datetime.now()}
-
-                        g_pred = calculate_green_pro_prediction(data)
-                        g_pred["period"] = next_period_str
-                        m_state.pred_green = g_pred
-                        m_state.history_green[next_period_str] = {**g_pred, "timestamp": datetime.now()}
-                        
-                    m_state.clean_old_records()
-        except Exception:
-            pass
-        time.sleep(fetch_delay)
-
-# =========================================================
-# UI RENDERER & MENUS
-# =========================================================
-def get_start_markup():
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    btn_30s = types.InlineKeyboardButton(to_vip("WINGO 30 SECONDS"), callback_data="market_30S")
-    btn_5m = types.InlineKeyboardButton(to_vip("WINGO 5 MINUTES"), callback_data="market_5M")
-    markup.add(btn_30s, btn_5m)
-    return markup
-
-def get_dashboard_header(market: str, mode: str) -> str:
-    market_name = "WINGO 30 SECONDS" if market == "30S" else "WINGO 5 MINUTES"
-    mode_name = "RED PRO WINNER" if mode == "RED" else "GREEN PRO WINNER"
-    return (
-        f"<b>{to_vip('DARK KILLER')} | {to_vip('DRX-TM')}</b>\n"
-        f"<b>{to_vip('MARKET')}: {to_vip(market_name)}</b>\n"
-        f"<b>{to_vip('ENGINE')}: {to_vip(mode_name)}</b>\n"
-        "────────────────────────"
-    )
-
-def create_market_markup(m_state: MarketState, mode: str, page: int):
-    markup = types.InlineKeyboardMarkup(row_width=4)
-
-    # 1. Period
-    period_str = m_state.current_period or "WAITING..."
-    markup.row(types.InlineKeyboardButton(f"{to_vip('PERIOD')}: {to_vip(period_str)}", callback_data="none"))
-
-    # 2. Timer & Progress
-    now_ts = int(time.time())
-    elapsed = now_ts % m_state.interval
-    remaining = m_state.interval - elapsed
-    filled = int((elapsed / m_state.interval) * 20)
-    progress_bar = "█" * filled + "▒" * (20 - filled)
-    markup.row(types.InlineKeyboardButton(f"{to_vip(str(remaining).zfill(2))}S [{progress_bar}]", callback_data="none"))
-
-    # 3. Prediction
-    pred = m_state.pred_red if mode == "RED" else m_state.pred_green
-    s_val = to_vip(pred['size']) if pred['size'] != "--" else "--"
-    n_val = to_vip(pred['num']) if pred['num'] != "--" else "--"
-    c_val = to_vip(pred['color']) if pred['color'] != "--" else "--"
-    markup.row(
-        types.InlineKeyboardButton(s_val, callback_data="none"),
-        types.InlineKeyboardButton(n_val, callback_data="none"),
-        types.InlineKeyboardButton(c_val, callback_data="none")
-    )
-
-    # 4. Data Table
-    start_idx = (max(1, min(TOTAL_PAGES, page)) - 1) * 10
-    records = m_state.market_data[start_idx : start_idx + 10]
-    outcomes = m_state.win_loss_red if mode == "RED" else m_state.win_loss_green
-
-    for item in records:
-        p_full = item["period"]
-        out_raw = outcomes.get(p_full, "--")
-        markup.row(
-            types.InlineKeyboardButton(to_vip(p_full[-4:] if len(p_full)>=4 else p_full), callback_data="none"),
-            types.InlineKeyboardButton(to_vip(str(item["number"])), callback_data="none"),
-            types.InlineKeyboardButton(to_vip(item["size"]), callback_data="none"),
-            types.InlineKeyboardButton(to_vip(out_raw) if out_raw != "--" else "--", callback_data="none")
-        )
-
-    for _ in range(10 - len(records)):
-        markup.row(*[types.InlineKeyboardButton("-", callback_data="none")]*4)
-
-    # 5. Pagination
-    prev_p = page - 1 if page > 1 else TOTAL_PAGES
-    next_p = page + 1 if page < TOTAL_PAGES else 1
-    markup.row(
-        types.InlineKeyboardButton(to_vip('PREV'), callback_data=f"page_{prev_p}"),
-        types.InlineKeyboardButton(f"{to_vip('PAGE')} {to_vip(str(page))}/{to_vip(str(TOTAL_PAGES))}", callback_data="none"),
-        types.InlineKeyboardButton(to_vip('NEXT'), callback_data=f"page_{next_p}")
-    )
-
-    # 6. Controls
-    switch_target = "GREEN" if mode == "RED" else "RED"
-    markup.row(types.InlineKeyboardButton(f"{to_vip('SWITCH TO ' + switch_target + ' PRO')}", callback_data=f"mode_{switch_target}"))
-    markup.row(
-        types.InlineKeyboardButton(to_vip("REFRESH"), callback_data="refresh"),
-        types.InlineKeyboardButton(to_vip("MAIN MENU"), callback_data="menu")
-    )
-    return markup
-
-# =========================================================
-# GLOBAL UI UPDATER THREAD (Updates all active chats)
-# =========================================================
-def ui_updater_loop():
-    while True:
-        with global_lock:
-            chats = list(active_chats.items())
+            entity = await client.get_entity(int(channel_id))
+        except ValueError:
+            entity = await client.get_entity(channel_id)
             
-        for chat_id, info in chats:
-            try:
-                msg_id = info["message_id"]
-                market, mode, page = info["market"], info["mode"], info["page"]
-                m_state = state_30s if market == "30S" else state_5m
-                
-                markup = create_market_markup(m_state, mode, page)
-                bot.edit_message_reply_markup(chat_id=chat_id, message_id=msg_id, reply_markup=markup)
-            except telebot.apihelper.ApiTelegramException as e:
-                pass # Ignore "message is not modified" errors
-            except Exception:
-                pass
-        time.sleep(2.5) # Update UI every 2.5 seconds to sync timer
+        await client(CreateGroupCallRequest(
+            peer=entity,
+            random_id=random.randint(100000, 9999999),
+            title="🔴 Live Signal Room"
+        ))
+        print(f"[+] Successfully started Live Stream in {channel_id}")
+    except Exception as e:
+        print(f"[-] Live Stream Error (Already running or issue): {e}")
 
-# =========================================================
-# BOT HANDLERS
-# =========================================================
-@bot.message_handler(commands=["start"])
-def send_start_menu(message):
-    with global_lock:
-        active_chats.pop(message.chat.id, None)
-        
-    text = (
-        f"<b>{to_vip('DARK KILLER')} | {to_vip('DRX-TM')}</b>\n"
-        f"<i>{to_vip('SELECT MARKET SYSTEM')}</i>\n"
-        "────────────────────────"
-    )
-    bot.send_message(message.chat.id, text, reply_markup=get_start_markup())
+@client.on(events.Raw)
+async def auto_unmute_handler(update):
+    """লাইভে কেউ জয়েন করলেই অটোমেটিক আনমিউট করবে"""
+    if isinstance(update, UpdateGroupCallParticipants):
+        for participant in update.participants:
+            if participant.muted:
+                try:
+                    await client(EditGroupCallParticipantRequest(
+                        call=update.call,
+                        participant=participant.peer,
+                        muted=False
+                    ))
+                    print("[+] এক ইউজারকে অটো আনমিউট করা হয়েছে!")
+                except Exception as e:
+                    pass
+
+# ================= TELEBOT কমান্ডস =================
+@bot.message_handler(commands=['admin88'])
+def admin_panel(message):
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    btn_add = types.InlineKeyboardButton("➕ Add Your Channel", callback_data="add_channel")
+    markup.add(btn_add)
+    bot.send_message(message.chat.id, "<b>⚙️ Admin Panel</b>\nচ্যানেল সেটআপ করতে নিচের বাটনে ক্লিক করুন:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
-    chat_id = call.message.chat.id
-    data = call.data
+    if call.data == "add_channel":
+        msg = bot.send_message(call.message.chat.id, "প্রথমে বট এবং আপনার রিয়েল আইডিকে চ্যানেলে Admin দিন।\nএরপর চ্যানেলের ID (যেমন: -100123...) দিন:")
+        bot.register_next_step_handler(msg, process_channel_id)
 
-    if data == "none":
-        bot.answer_callback_query(call.id)
-        return
+def process_channel_id(message):
+    channel_id = message.text.strip()
+    user_id = message.chat.id
+    with db_lock:
+        if user_id not in users_db:
+            users_db[user_id] = {"schedules": [], "state": "WAITING", "target_issue": None, "pending_pred": None, "last_was_win": True}
+        users_db[user_id]["channel_id"] = channel_id
+    bot.send_message(user_id, "<b>ডান ওকে ডান ✅</b>", parse_mode="HTML")
 
-    # Back to Menu
-    if data == "menu":
-        with global_lock:
-            active_chats.pop(chat_id, None)
-        text = (
-            f"<b>{to_vip('DARK KILLER')} | {to_vip('DRX-TM')}</b>\n"
-            f"<i>{to_vip('SELECT MARKET SYSTEM')}</i>\n"
-            "────────────────────────"
-        )
-        try:
-            bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=get_start_markup())
-        except:
-            pass
-        return
-
-    # Market Launch
-    if data.startswith("market_"):
-        market_type = data.split("_")[1]
-        with global_lock:
-            active_chats[chat_id] = {"message_id": call.message.message_id, "market": market_type, "mode": "RED", "page": 1}
+@bot.message_handler(regexp=r'(?i)^/TM\s+\d{1,2}:\d{2}.*')
+def set_time_schedule(message):
+    user_id = message.chat.id
+    text = message.text.upper()
+    with db_lock:
+        if user_id not in users_db or not users_db[user_id].get("channel_id"):
+            bot.send_message(user_id, "⚠️ আগে /admin88 দিয়ে চ্যানেল অ্যাড করুন।")
+            return
             
-        header = get_dashboard_header(market_type, "RED")
-        m_state = state_30s if market_type == "30S" else state_5m
-        markup = create_market_markup(m_state, "RED", 1)
-        try:
-            bot.edit_message_text(header, chat_id, call.message.message_id, reply_markup=markup)
-        except:
-            pass
-        bot.answer_callback_query(call.id, text=to_vip(f"{market_type} ACTIVATED"))
-        return
-
-    # User context block
-    with global_lock:
-        chat_info = active_chats.get(chat_id)
+    match = re.search(r'/TM\s+(\d{1,2}):(\d{2})\s*(AM|PM)?\s*-\s*(\d{1,2}):(\d{2})\s*(AM|PM)?', text)
+    if match:
+        sh, sm, sampm, eh, em, eampm = match.groups()
+        sh, sm, eh, em = int(sh), int(sm), int(eh), int(em)
         
-    if not chat_info:
-        bot.answer_callback_query(call.id, text="Please /start again")
-        return
-
-    market = chat_info["market"]
-    mode = chat_info["mode"]
-    page = chat_info["page"]
-    m_state = state_30s if market == "30S" else state_5m
-
-    if data.startswith("mode_"):
-        new_mode = data.split("_")[1]
-        with global_lock:
-            active_chats[chat_id]["mode"] = new_mode
+        if sampm:
+            if sampm == 'PM' and sh != 12: sh += 12
+            if sampm == 'AM' and sh == 12: sh = 0
+        else:
+            if sh < 12 and sh != 0: sh += 12
             
-        header = get_dashboard_header(market, new_mode)
-        markup = create_market_markup(m_state, new_mode, page)
-        try:
-            bot.edit_message_text(header, chat_id, call.message.message_id, reply_markup=markup)
-        except:
-            pass
-        bot.answer_callback_query(call.id, text=to_vip(f"{new_mode} PRO ACTIVATED"))
+        if eampm:
+            if eampm == 'PM' and eh != 12: eh += 12
+            if eampm == 'AM' and eh == 12: eh = 0
+        else:
+            if eh < 12 and eh != 0: eh += 12
 
-    elif data.startswith("page_"):
-        new_page = int(data.split("_")[1])
-        with global_lock:
-            active_chats[chat_id]["page"] = new_page
-        markup = create_market_markup(m_state, mode, new_page)
-        try:
-            bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=markup)
-        except:
-            pass
-        bot.answer_callback_query(call.id, text=f"{to_vip('PAGE')} {new_page}")
+        with db_lock:
+            users_db[user_id]["schedules"] = [(sh, sm, eh, em)]
+            
+        bot.send_message(user_id, f"হ্যাঁ, আমরা {message.text.replace('/TM ', '')} থেকে সিগন্যাল দিব। 🎯")
 
-    elif data == "refresh":
-        markup = create_market_markup(m_state, mode, page)
-        try:
-            bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=markup)
-        except:
-            pass
-        bot.answer_callback_query(call.id, text=to_vip("REFRESHED"))
+# ================= কোর সিগন্যাল ও মনিটর লুপ =================
+def is_in_schedule(now, schedules):
+    current_minutes = now.hour * 60 + now.minute
+    for (sh, sm, eh, em) in schedules:
+        start_mins = sh * 60 + sm
+        end_mins = eh * 60 + em
+        if start_mins <= current_minutes < end_mins:
+            return True
+    return False
 
-# =========================================================
-# RUN BOT & THREADS
-# =========================================================
-if __name__ == "__main__":
-    print("=" * 60)
-    print(f"{to_vip('DARK KILLER')} | {to_vip('DRX-TM')} [SYSTEM ONLINE]")
-    print("Dual Markets: WinGo 30S & WinGo 5M")
-    print("=" * 60)
+def send_prediction_signal(channel_id, issue, prediction):
+    short_issue = str(issue)[-6:] 
+    digits = "/".join(random.sample(['5','6','7','8','9'], 2)) if prediction == "BIG" else "/".join(random.sample(['0','1','2','3','4'], 2))
+        
+    text = f"""🌿🍁🌿 {prediction} SIGNAL 🌿🍁🌿
+▱▱▱▱▱▱▱▱▱▱▱▱▱▱
+💎 Period   ➤  {short_issue}
+🎯 Action   ➤  BET {prediction} 🌹
+⚡ digit   ➤   {digits}
+▱▱▱▱▱▱▱▱▱▱▱▱▱▱"""
+    try:
+        bot.send_message(channel_id, text)
+    except: pass
 
-    # Thread 1: 5-Minute Market API Fetcher
-    t1 = threading.Thread(target=market_data_worker, args=(API_URL_5M, state_5m, 4), daemon=True)
-    t1.start()
-
-    # Thread 2: 30-Second Market API Fetcher (Faster Polling)
-    t2 = threading.Thread(target=market_data_worker, args=(API_URL_30S, state_30s, 2), daemon=True)
-    t2.start()
-
-    # Thread 3: Unified Global UI Updater
-    t3 = threading.Thread(target=ui_updater_loop, daemon=True)
-    t3.start()
-
+def market_monitor_loop(async_loop):
     while True:
         try:
-            bot.infinity_polling(timeout=20, long_polling_timeout=10)
+            results = fetch_latest_results()
+            if not results:
+                time.sleep(2)
+                continue
+                
+            curr_issue = results[0]["period"]
+            now = datetime.now(BD_TIMEZONE)
+            
+            with db_lock:
+                users_list = list(users_db.items())
+                
+            for user_id, udata in users_list:
+                channel_id = udata.get("channel_id")
+                schedules = udata.get("schedules", [])
+                if not channel_id or not schedules:
+                    continue
+                    
+                in_schedule = is_in_schedule(now, schedules)
+                state = udata["state"]
+
+                # --- সিগন্যাল শুরু এবং লাইভ স্টার্ট ---
+                if in_schedule and state == "WAITING":
+                    udata["state"] = "RUNNING"
+                    udata["last_was_win"] = True 
+                    try: bot.send_sticker(channel_id, START_STICKER)
+                    except: pass
+                    
+                    # টেলিথন (Userbot) দিয়ে লাইভ শুরু করার কমান্ড
+                    asyncio.run_coroutine_threadsafe(start_group_call(channel_id), async_loop)
+                    
+                elif not in_schedule and state == "RUNNING":
+                    udata["state"] = "STOPPING"
+
+                # --- রেজাল্ট চেক ও স্টিকার ---
+                target_issue = udata.get("target_issue")
+                pending_pred = udata.get("pending_pred")
+                
+                if target_issue and curr_issue >= target_issue:
+                    target_num = next((r["number"] for r in results if r["period"] == target_issue), None)
+                    if target_num is not None:
+                        actual_is_big = (target_num >= 5)
+                        predicted_is_big = (pending_pred == "BIG")
+                        is_win = (actual_is_big == predicted_is_big)
+                        
+                        try:
+                            if is_win: bot.send_sticker(channel_id, random.choice(WIN_STICKERS))
+                            else: bot.send_sticker(channel_id, LOSS_STICKER)
+                        except: pass
+                        
+                        udata["last_was_win"] = is_win
+                        udata["target_issue"] = None
+                        udata["pending_pred"] = None
+
+                        if udata["state"] == "STOPPING" and is_win:
+                            try: bot.send_sticker(channel_id, END_STICKER)
+                            except: pass
+                            udata["state"] = "WAITING"
+
+                # --- নতুন সিগন্যাল (TIGER PRO) ---
+                if (udata["state"] == "RUNNING" or udata["state"] == "STOPPING") and udata.get("target_issue") is None:
+                    prediction = calculate_tiger_pro(results)
+                    next_issue = str(int(curr_issue) + 1)
+                    udata["pending_pred"] = prediction
+                    udata["target_issue"] = next_issue
+                    send_prediction_signal(channel_id, next_issue, prediction)
+                    
         except Exception as e:
-            logger.error(f"Crash: {e}. Restarting in 5s...")
-            time.sleep(5)
+            pass
+            
+        time.sleep(3)
+
+# ================= বট স্টার্টার =================
+if __name__ == "__main__":
+    print("[*] Tiger Pro Auto Signal + Live Stream Bot Started...")
+    
+    # টেলিটক (Telebot) পোলের জন্য একটি আলাদা থ্রেড তৈরি করা হলো
+    threading.Thread(target=bot.infinity_polling, daemon=True).start()
+    
+    # ইভেন্ট লুপ নিয়ে মনিটর থ্রেড রান করানো হলো
+    main_loop = asyncio.get_event_loop()
+    threading.Thread(target=market_monitor_loop, args=(main_loop,), daemon=True).start()
+    
+    # টেলিথন (Userbot) ক্লায়েন্ট চালু রাখা হলো
+    client.start()
+    print("[+] Userbot Active & Waiting to Start Live Streams!")
+    client.run_until_disconnected()
