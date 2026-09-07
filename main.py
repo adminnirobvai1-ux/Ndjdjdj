@@ -2,11 +2,11 @@
 """
 DRX-TM WinGo Multi-Market (30S & 5M) Pure Market Viewer Bot
 Features:
-  - Zero Prediction / Pure Live Market Engine
-  - 30-Second (29S) & 5-Minute Live Market Sync
-  - Real-time Animated Countdown Timer
-  - Period, Number, Size, Color Live Table
-  - Referral Lock, Channel Verification & Admin Password Bypass
+  - 100% Pure Market Feed (No Prediction, No Guess, No Win/Loss)
+  - 30-Second (Tiger Pro API) & 5-Minute Live Market
+  - Real-time Animated Countdown
+  - Columns: PERIOD | NUM | SIZE | COLOR
+  - Detailed Terminal Logs to verify API Data
 """
 
 import time
@@ -19,7 +19,10 @@ import os
 BOT_TOKEN = "8864547814:AAEBQxt864_3n06RLllIqCsN3AuyGmJhSzg"
 BOT_USERNAME = "DRX_TM_POD_BOT" 
 CHANNEL_USERNAME = "@DARK67HACK"
-ADMIN_ID = "8707571669"  # Admin User ID
+ADMIN_ID = "8707571669"
+
+# চ্যানেল লক টেস্ট করার সময় সমস্যা করলে False করে দিতে পারেন
+ENABLE_CHANNEL_LOCK = False  # সাথে সাথে মার্কেট দেখতে এটি False করা আছে, পরে True করতে পারেন
 
 MARKETS = {
     "30S": {
@@ -46,7 +49,7 @@ def to_premium(text):
     )
     return str(text).translate(mapping)
 
-# ================= NUMBER LOGIC =================
+# ================= RULES & CALCULATION =================
 def get_color(num: int) -> str:
     if num in [0, 5]:
         return "VIOLET"
@@ -55,127 +58,19 @@ def get_color(num: int) -> str:
 def get_size(num: int) -> str:
     return "BIG" if num >= 5 else "SMALL"
 
-# ================= DATABASE & REFERRAL LOGIC =================
-def load_db():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r") as f:
-                db = json.load(f)
-                if "__config__" not in db:
-                    db["__config__"] = {"bypass_password": None}
-                return db
-        except Exception:
-            pass
-    return {"__config__": {"bypass_password": None}}
-
-def save_db(db):
-    try:
-        with open(DB_FILE, "w") as f:
-            json.dump(db, f)
-    except Exception as e:
-        print(f"[-] DB Save Error: {e}")
-
-USERS_DB = load_db()
-
-def check_channel_member(user_id):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getChatMember"
-    params = {"chat_id": CHANNEL_USERNAME, "user_id": user_id}
-    try:
-        res = requests.get(url, params=params, timeout=3).json()
-        if res.get("ok"):
-            status = res["result"]["status"]
-            return status in ["member", "administrator", "creator"]
-    except Exception:
-        pass
-    return False
-
-def get_user_task_info(user_id):
-    user_id = str(user_id)
-    current_day = int(time.time() + 21600) // 86400  # UTC+6
-    
-    if user_id not in USERS_DB:
-        USERS_DB[user_id] = {
-            "joined_day": current_day,
-            "referrals": [],
-            "unlocked_days": []
-        }
-        save_db(USERS_DB)
-        
-    user_data = USERS_DB[user_id]
-    days_active = current_day - user_data.get("joined_day", current_day)
-    target_shares = 2 + days_active
-    current_referrals = len(user_data.get("referrals", []))
-    is_unlocked_today = str(current_day) in user_data.get("unlocked_days", [])
-    
-    return target_shares, current_referrals, is_unlocked_today, current_day
-
-def send_telegram_msg(chat_id, text):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    try:
-        requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"}, timeout=4)
-    except Exception:
-        pass
-
-# ================= TASK PROMPT & MENU =================
-def send_welcome_task_menu(chat_id, msg_id=None):
-    target, current, _, _ = get_user_task_info(chat_id)
-    
-    text = (
-        f"<b>{to_premium('WELCOME TO WINGO LIVE MARKET')}</b>\n\n"
-        "আসসালামু আলাইকুম। আশা করি সকলে ভালো আছেন।\n\n"
-        "এই 𝐋𝐈𝐕𝐄 𝐌𝐀𝐑𝐊𝐄𝐓 𝐁𝐎𝐓 ব্যবহার করার জন্য আপনাকে নিচের শর্ত পূরণ করতে হবে <b>অথবা</b> এডমিনের দেয়া পাসওয়ার্ড সাবমিট করতে হবে:\n\n"
-        f"১. আমাদের অফিশিয়াল চ্যানেলে জয়েন থাকতে হবে।\n"
-        f"২. বটটি প্রথমবার আনলক করতে <b>২ জন</b> রিয়েল রেফার করতে হবে। পরবর্তীতে প্রতিদিন <b>১ জন</b> করে রেফার করতে হবে।\n\n"
-        "⚠️ <b>সতর্কতা:</b> রেফার করা মেম্বারকে অবশ্যই চ্যানেলে জয়েন থাকতে হবে!\n\n"
-        f"🎯 আপনার বর্তমান টার্গেট: <b>{to_premium(str(target))}</b> জন।\n"
-        f"👥 লিংকে ক্লিক করেছে: <b>{to_premium(str(current))}</b> জন।\n\n"
-        "🔑 <i>আপনার কাছে পাসওয়ার্ড থাকলে সেটি সরাসরি চ্যাটে লিখে সেন্ড করুন।</i>"
-    )
-    
-    channel_link = f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}"
-    personal_ref_link = f"https://t.me/{BOT_USERNAME}?start={chat_id}"
-    share_url = f"https://t.me/share/url?url={personal_ref_link}&text=Join%20Live%20WinGo%20Market%20Terminal"
-
-    keyboard = [
-        [{"text": to_premium("JOIN CHANNEL"), "url": channel_link}],
-        [{"text": to_premium("SHARE LINK"), "url": share_url}],
-        [{"text": to_premium("VERIFY REFERRALS"), "callback_data": "verify_task"}]
-    ]
-
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "reply_markup": {"inline_keyboard": keyboard}
-    }
-
-    if msg_id:
-        payload["message_id"] = msg_id
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
-    else:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        
-    try:
-        res = requests.post(url, json=payload, timeout=4).json()
-        if not msg_id and res.get("ok"):
-            USER_SESSIONS[str(chat_id)] = {
-                "msg_id": res["result"]["message_id"],
-                "view": "task",
-                "market": None
-            }
-    except Exception:
-        pass
-
-# ================= API DATA & TIMER =================
+# ================= ROBUST API FETCHER =================
 def fetch_market_history(market_key):
     api_url = MARKETS[market_key]["api"]
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    
     try:
-        res = requests.get(api_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=4)
+        res = requests.get(api_url, headers=headers, timeout=5)
         if res.status_code == 200:
             data = res.json()
             raw_list = []
-            
+
             if isinstance(data, dict):
+                # ৩০ সেকেন্ড এপিআই তে 'history' থাকে, আবার অন্যদের 'prediction_history' থাকে
                 for k in ["history", "prediction_history", "data", "list", "records"]:
                     if k in data and isinstance(data[k], list):
                         raw_list = data[k]
@@ -187,20 +82,24 @@ def fetch_market_history(market_key):
             for item in raw_list:
                 if isinstance(item, dict):
                     p_raw = item.get("period")
-                    n_raw = item.get("number") if item.get("number") is not None else item.get("actual_number")
+                    
+                    # আসল নাম্বার নেওয়া: actual_number অথবা number
+                    n_raw = item.get("actual_number")
+                    if n_raw is None:
+                        n_raw = item.get("number")
+
                     if p_raw is not None and n_raw is not None:
                         try:
                             num = int(n_raw)
                         except (ValueError, TypeError):
                             continue
-                        
-                        size = str(item.get("size", "")).strip().upper()
-                        color = str(item.get("color", "")).strip().upper()
-                        
-                        if size not in ["BIG", "SMALL"]:
-                            size = get_size(num)
-                        if color not in ["RED", "GREEN", "VIOLET"]:
-                            color = get_color(num)
+
+                        # সাইজ ও কালার নিশ্চিত করা
+                        s_raw = str(item.get("size", "")).strip().upper()
+                        c_raw = str(item.get("color", "")).strip().upper()
+
+                        size = s_raw if s_raw in ["BIG", "SMALL"] else get_size(num)
+                        color = c_raw if c_raw in ["RED", "GREEN", "VIOLET"] else get_color(num)
 
                         formatted.append({
                             "period": str(p_raw).strip(),
@@ -208,11 +107,19 @@ def fetch_market_history(market_key):
                             "size": size,
                             "color": color
                         })
-            return formatted
-    except Exception:
-        pass
+
+            if formatted:
+                return formatted
+            else:
+                print(f"[!] Warning: API responded but no records parsed from {api_url}")
+        else:
+            print(f"[-] API HTTP Error: {res.status_code} for {api_url}")
+    except Exception as e:
+        print(f"[-] API Fetch Exception ({market_key}): {e}")
+        
     return []
 
+# ================= TIMER DISPLAY =================
 def get_countdown(interval):
     now = int(time.time())
     return interval - (now % interval)
@@ -228,7 +135,7 @@ def get_timer_display(interval):
         return f"⏳ {mins:02d}:{secs:02d} [{bar}]"
     return f"⏳ {sec:02d}S [{bar}]"
 
-# ================= MAIN MENU =================
+# ================= UI BUILDERS =================
 def build_menu_markup():
     keyboard = [
         [{"text": to_premium("WINGO 30 SEC LIVE"), "callback_data": "open_30S"}],
@@ -236,13 +143,14 @@ def build_menu_markup():
     ]
     return to_premium("SELECT WINGO MARKET"), keyboard
 
-# ================= PURE MARKET VIEW (NO PREDICTION) =================
 def build_market_markup(market_key):
     cfg = MARKETS[market_key]
     interval = cfg["interval"]
     records = fetch_market_history(market_key)
-    
-    # পিরিয়ড গণনা
+
+    keyboard = []
+
+    # পিরিয়ড কাউন্ট
     if records:
         top_period = records[0]["period"]
         try:
@@ -250,20 +158,21 @@ def build_market_markup(market_key):
         except Exception:
             current_period = str(top_period)
     else:
-        current_period = "SYNCING..."
+        current_period = "WAITING DATA..."
 
     period_8 = current_period[-8:] if len(current_period) >= 8 else current_period
 
-    keyboard = []
-    # ১. পিরিয়ড
+    # ১. টপ পিরিয়ড বার
     keyboard.append([
         {"text": to_premium(f"PERIOD: {period_8}"), "callback_data": "noop"}
     ])
-    # ২. টাইমার
+
+    # ২. টাইমার কাউন্টডাউন
     keyboard.append([
         {"text": get_timer_display(interval), "callback_data": "noop"}
     ])
-    # ৩. টেবিল হেডার (নো প্রেডিকশন)
+
+    # ৩. টেবিল হেডার
     keyboard.append([
         {"text": to_premium("PERIOD"), "callback_data": "noop"},
         {"text": to_premium("NUM"), "callback_data": "noop"},
@@ -271,23 +180,32 @@ def build_market_markup(market_key):
         {"text": to_premium("COLOR"), "callback_data": "noop"}
     ])
 
-    # ৪. পিওর মার্কেট ডাটা (সর্বোচ্চ ১০টি সারি)
-    for item in records[:10]:
-        p_short = item["period"][-4:] if len(item["period"]) >= 4 else item["period"]
-        num = str(item["number"])
-        size = item["size"]
-        color = item["color"]
+    # ৪. মার্কেট ডাটা রো (সর্বোচ্চ ১০টি)
+    if records:
+        for item in records[:10]:
+            p_short = item["period"][-4:] if len(item["period"]) >= 4 else item["period"]
+            num_str = str(item["number"])
+            size_str = item["size"]
+            color_str = item["color"]
 
+            keyboard.append([
+                {"text": to_premium(p_short), "callback_data": "noop"},
+                {"text": to_premium(num_str), "callback_data": "noop"},
+                {"text": to_premium(size_str), "callback_data": "noop"},
+                {"text": to_premium(color_str), "callback_data": "noop"}
+            ])
+    else:
+        # ডাটা ফেচিং এ সময় লাগলে খালি দেখাবে না
         keyboard.append([
-            {"text": to_premium(p_short), "callback_data": "noop"},
-            {"text": to_premium(num), "callback_data": "noop"},
-            {"text": to_premium(size), "callback_data": "noop"},
-            {"text": to_premium(color), "callback_data": "noop"}
+            {"text": to_premium("LOADING..."), "callback_data": "noop"},
+            {"text": to_premium("--"), "callback_data": "noop"},
+            {"text": to_premium("--"), "callback_data": "noop"},
+            {"text": to_premium("--"), "callback_data": "noop"}
         ])
 
-    # ৫. ব্যাক টু মেনু বাটন
+    # ৫. ব্যাক বাটন
     keyboard.append([
-        {"text": to_premium("🔙 BACK TO MARKETS"), "callback_data": "back_to_menu"}
+        {"text": to_premium("🔙 BACK TO MENU"), "callback_data": "back_to_menu"}
     ])
 
     text_title = (
@@ -298,7 +216,7 @@ def build_market_markup(market_key):
     )
     return text_title, keyboard
 
-# ================= TELEGRAM HANDLERS =================
+# ================= TELEGRAM ACTIONS =================
 def send_main_menu(chat_id, msg_id=None):
     title, markup = build_menu_markup()
     payload = {
@@ -323,8 +241,8 @@ def send_main_menu(chat_id, msg_id=None):
                 "view": "menu",
                 "market": None
             }
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[-] Menu send error: {e}")
 
 def switch_view(chat_id, msg_id, view, market_key=None):
     if view == "menu":
@@ -342,18 +260,18 @@ def switch_view(chat_id, msg_id, view, market_key=None):
         "reply_markup": {"inline_keyboard": markup}
     }
     try:
-        requests.post(url, json=payload, timeout=4)
+        res = requests.post(url, json=payload, timeout=4).json()
+        if not res.get("ok"):
+            print(f"[-] EditMessageText failed: {res}")
         USER_SESSIONS[str(chat_id)] = {
             "msg_id": msg_id,
             "view": view,
             "market": market_key
         }
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[-] switch_view exception: {e}")
 
-def live_update_keyboard(chat_id, msg_id, view, market_key):
-    if view == "menu":
-        return
+def live_update_keyboard(chat_id, msg_id, market_key):
     _, markup = build_market_markup(market_key)
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageReplyMarkup"
@@ -367,15 +285,15 @@ def live_update_keyboard(chat_id, msg_id, view, market_key):
     except Exception:
         pass
 
-def answer_callback(cb_id, text="", show_alert=False):
+def answer_callback(cb_id, text=""):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
-    payload = {"callback_query_id": cb_id, "text": text, "show_alert": show_alert}
+    payload = {"callback_query_id": cb_id, "text": text}
     try:
         requests.post(url, json=payload, timeout=2)
     except Exception:
         pass
 
-# ================= REALTIME ENGINE =================
+# ================= REAL-TIME SYNC ENGINE =================
 def realtime_sync_engine():
     while True:
         try:
@@ -384,17 +302,24 @@ def realtime_sync_engine():
                     live_update_keyboard(
                         chat_id, 
                         session["msg_id"], 
-                        session["view"], 
                         session["market"]
                     )
         except Exception:
             pass
         time.sleep(1)
 
-# ================= MAIN LISTENER =================
+# ================= TELEGRAM LISTENER =================
 def telegram_listener():
     global LAST_UPDATE_ID
-    print("[*] Engine Online. Pure Market Display Active (Zero Prediction).")
+    print("=" * 60)
+    print(f"[+] DRX-TM PURE MARKET BOT STARTED SUCCESSFULLY")
+    print(f"[+] Testing 30S API...")
+    test_30s = fetch_market_history("30S")
+    print(f"[+] 30S API Connected! Records found: {len(test_30s)}")
+    print(f"[+] Testing 5M API...")
+    test_5m = fetch_market_history("5M")
+    print(f"[+] 5M API Connected! Records found: {len(test_5m)}")
+    print("=" * 60)
 
     while True:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
@@ -412,99 +337,35 @@ def telegram_listener():
                         chat_id = str(item["message"]["chat"]["id"])
                         msg_text = item["message"]["text"].strip()
                         
-                        # --- ADMIN PASSWORD SETTING ---
-                        if chat_id == ADMIN_ID and msg_text.startswith("/admin "):
-                            new_pass = msg_text.split(" ", 1)[1].strip()
-                            USERS_DB["__config__"]["bypass_password"] = new_pass
-                            save_db(USERS_DB)
-                            send_telegram_msg(chat_id, f"✅ <b>Bypass password successfully set to:</b> {new_pass}")
-                            continue
-
-                        # --- USER PASSWORD BYPASS ---
-                        global_pass = USERS_DB.get("__config__", {}).get("bypass_password")
-                        if global_pass and msg_text == global_pass:
-                            _, _, _, current_day = get_user_task_info(chat_id)
-                            if "unlocked_days" not in USERS_DB[chat_id]:
-                                USERS_DB[chat_id]["unlocked_days"] = []
-                            if str(current_day) not in USERS_DB[chat_id]["unlocked_days"]:
-                                USERS_DB[chat_id]["unlocked_days"].append(str(current_day))
-                                save_db(USERS_DB)
-                            
-                            send_telegram_msg(chat_id, "✅ <b>𝐏𝐀𝐒𝐒𝐖𝐎𝐑𝐃 𝐀𝐂𝐂𝐄𝐏𝐓𝐄𝐃!</b>\nআপনি রেফারাল ছাড়াই মার্কেট বট আনলক করেছেন।")
+                        # সরাসরি মেইন মেনু ওপেন হবে
+                        if msg_text.startswith("/start"):
                             send_main_menu(chat_id)
-                            continue
-
-                        # --- REFERRAL TRACKING (/start ...) ---
-                        if msg_text.startswith("/start ") and len(msg_text.split()) > 1:
-                            referrer_id = msg_text.split()[1].strip()
-                            if chat_id not in USERS_DB:
-                                get_user_task_info(chat_id)
-                                if referrer_id in USERS_DB and referrer_id != chat_id:
-                                    if "referrals" not in USERS_DB[referrer_id]:
-                                        USERS_DB[referrer_id]["referrals"] = []
-                                    if chat_id not in USERS_DB[referrer_id]["referrals"]:
-                                        USERS_DB[referrer_id]["referrals"].append(chat_id)
-                                        save_db(USERS_DB)
-                                        
-                        is_member = check_channel_member(chat_id)
-                        target, current_refs, is_unlocked, _ = get_user_task_info(chat_id)
-                        
-                        if is_unlocked and is_member:
-                            send_main_menu(chat_id)
-                        else:
-                            send_welcome_task_menu(chat_id)
 
                     elif "callback_query" in item:
                         cb = item["callback_query"]
                         cb_id = cb["id"]
-                        data = cb.get("data", "")
+                        data_val = cb.get("data", "")
                         chat_id = str(cb["message"]["chat"]["id"])
                         msg_id = cb["message"]["message_id"]
 
-                        if data == "verify_task":
-                            is_member = check_channel_member(chat_id)
-                            target, _, is_unlocked, current_day = get_user_task_info(chat_id)
-                            
-                            if not is_member:
-                                answer_callback(cb_id, "Access Denied: You must join the channel first.", show_alert=True)
-                            else:
-                                raw_referrals = USERS_DB[chat_id].get("referrals", [])
-                                valid_referrals = 0
-                                
-                                for ref_id in raw_referrals:
-                                    if check_channel_member(ref_id):
-                                        valid_referrals += 1
-
-                                if valid_referrals < target:
-                                    remaining = target - valid_referrals
-                                    answer_callback(cb_id, f"Access Denied: {remaining} more REAL users must JOIN the channel.", show_alert=True)
-                                    send_welcome_task_menu(chat_id, msg_id)
-                                else:
-                                    if not is_unlocked:
-                                        if "unlocked_days" not in USERS_DB[chat_id]:
-                                            USERS_DB[chat_id]["unlocked_days"] = []
-                                        USERS_DB[chat_id]["unlocked_days"].append(str(current_day))
-                                        save_db(USERS_DB)
-                                        
-                                    answer_callback(cb_id, "Access Granted. Real Referrals Verified! ✅", show_alert=False)
-                                    send_main_menu(chat_id, msg_id)
-                                
-                        elif data == "open_30S":
+                        if data_val == "open_30S":
+                            print(f"[+] User {chat_id} opened 30S Market")
                             switch_view(chat_id, msg_id, "market", "30S")
                             answer_callback(cb_id)
 
-                        elif data == "open_5M":
+                        elif data_val == "open_5M":
+                            print(f"[+] User {chat_id} opened 5M Market")
                             switch_view(chat_id, msg_id, "market", "5M")
                             answer_callback(cb_id)
 
-                        elif data == "back_to_menu":
+                        elif data_val == "back_to_menu":
                             switch_view(chat_id, msg_id, "menu", None)
                             answer_callback(cb_id)
 
                         else:
                             answer_callback(cb_id)
                             
-        except Exception:
+        except Exception as e:
             pass
             
         time.sleep(0.5)
