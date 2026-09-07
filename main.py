@@ -1,33 +1,43 @@
 # -*- coding: utf-8 -*-
-import requests
-import time
+"""
+WinGo 30S Professional Auto Signal & Telethon Live Stream Controller
+Combined Engine: TIGER PRO Analytics + Telethon Userbot Live + Bot Admin Management
+"""
+
+import os
 import sys
+import time
 import random
 import re
-import threading
 import asyncio
+import threading
+import requests
 from datetime import datetime, timedelta, timezone
 from collections import Counter
 
 import telebot
 from telebot import types
+
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.tl.functions.phone import CreateGroupCallRequest, EditGroupCallParticipantRequest
 from telethon.tl.types import UpdateGroupCallParticipants
 
-# ================= কনফিগারেশন =================
+# =========================================================
+# ১. কনফিগারেশন ও ক্রেডেনশিয়াল
+# =========================================================
 BOT_TOKEN = "8864547814:AAEBQxt864_3n06RLllIqCsN3AuyGmJhSzg"
-DB_URL = "https://raw.githubusercontent.com/poke999craft-del/Ififiififi/refs/heads/main/New%20Text%20Document.txt"
+
+API_ID = 32054831
+API_HASH = "89fc23d0ff6763a53004996fe0c6cab2"
+SESSION_STRING = "1BVtsOMMBuz49a2_210in_8j3mmQYJ1OBm2w2niDhPuTm83mfeVuXoXO_UhiWNxMvEGPhaKgwHJfDvPY8YgA_OuB0jT91aNvQy-2SV49fwWZqeqgtjra0MubJ7M0EElD1nQ2gDVCmnuKNEzJ57lKkQ8pSLf99qgvO1r6xUB1J-vj-OAfJYFLHPjb34fyOos-HjzagA6CibhLy_tEp-gzFQyF74uXI5ftt40-JrZG8CbqPVvnI8sDG-hpj_7lBlrdudzZ_gZ7Fj6tKcz_TA_EI3BeTqSzthrAMeZhkbSovmzGLBTatRFMc58RVvycts5PRaM-c17-jly3-xKix1r0gcykDA_cFJQQ="
+
 API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
 BD_TIMEZONE = timezone(timedelta(hours=6))
 
-# আপনার ইউজারবটের (রিয়েল আইডি) ক্রেডেনশিয়াল
-API_ID = 32054831
-API_HASH = '89fc23d0ff6763a53004996fe0c6cab2'
-SESSION_STRING = '1BVtsOMMBuz49a2_210in_8j3mmQYJ1OBm2w2niDhPuTm83mfeVuXoXO_UhiWNxMvEGPhaKgwHJfDvPY8YgA_OuB0jT91aNvQy-2SV49fwWZqeqgtjra0MubJ7M0EElD1nQ2gDVCmnuKNEzJ57lKkQ8pSLf99qgvO1r6xUB1J-vj-OAfJYFLHPjb34fyOos-HjzagA6CibhLy_tEp-gzFQyF74uXI5ftt40-JrZG8CbqPVvnI8sDG-hpj_7lBlrdudzZ_gZ7Fj6tKcz_TA_EI3BeTqSzthrAMeZhkbSovmzGLBTatRFMc58RVvycts5PRaM-c17-jly3-xKix1r0gcykDA_cFJQQ='
-
-# ================= স্টিকার আইডিসমূহ =================
+# =========================================================
+# ২. স্টিকার কালেকশন
+# =========================================================
 START_STICKER = "CAACAgUAAxkBAAICx2pgV34mvhrXYdFo074GfPCT3DxpAAIGHAACCWOZVJ54JyHk0pq6PQQ"
 WIN_STICKERS = [
     "CAACAgUAAxkBAAICympgV_mYbYJ5o_ltYTUUBv7mKTr5AALSHAACQlWYVEhO4I8eBRYYPQQ",
@@ -35,64 +45,77 @@ WIN_STICKERS = [
 ]
 LOSS_STICKER = "CAACAgUAAxkBAAICzGpgWC6gUjMbKd5TvjfoCeqHPrrtAAJOGQACxAuZVNxk4HDx8tskPQQ"
 MORNING_STICKER = "CAACAgUAAxkBAAIC0GpgWErTJk46Z_CfSizMZsi2vIU0AAKaFwACE0qZVBcum6ql5maTPQQ"
-END_STICKER = "CAACAgUAAxkBAAICx2pgV34mvhrXYdFo074GfPCT3DxpAAIGHAACCWOZVJ54JyHk0pq6PQQ" # সেশন শেষের স্টিকার
+END_STICKER = "CAACAgUAAxkBAAICx2pgV34mvhrXYdFo074GfPCT3DxpAAIGHAACCWOZVJ54JyHk0pq6PQQ"
 
+# =========================================================
+# ৩. গ্লোবাল ডাটাবেস ও অবজেক্ট ইনিশিয়ালাইজেশন
+# =========================================================
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
-client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+telethon_client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
-# ================= ইউজার ও চ্যানেল ডাটাবেস =================
-# স্ট্রাকচার: {user_id: {"channel_id": "...", "schedules": [...], "state": "WAITING", "target_issue": None, "pending_pred": None, "last_was_win": True}}
-users_db = {}
+telethon_loop = None
 db_lock = threading.Lock()
-LAST_MORNING_STICKER_DATE = None
 
-# ================= ডাটাবেস লোডার ও প্রেডিকশন (আপনার অরিজিনাল কোড) =================
-def load_database():
-    print("Database লোড হচ্ছে...")
-    try:
-        res = requests.get(DB_URL, timeout=10)
-        db_string = ''.join(filter(str.isdigit, res.text))
-        print(f"Database লোড সফল! মোট সংখ্যা: {len(db_string)}")
-        return db_string
-    except Exception as e:
-        print(f"Database লোড করতে সমস্যা হয়েছে: {e}")
-        return ""
+# স্ট্রাকচার:
+# users_db = {
+#     chat_id: {
+#         "channel_id": "...",
+#         "schedules": [(sh, sm, eh, em)],
+#         "state": "WAITING" / "RUNNING" / "STOPPING",
+#         "target_issue": None,
+#         "pending_pred": None,
+#         "last_was_win": True,
+#         "live_active": False
+#     }
+# }
+users_db = {}
 
-def run_prediction(seq_str, db_str):
-    if len(db_str) == 0 or len(seq_str) < 4:
-        return None
-    start_len = min(len(seq_str), 9)
-    for i in range(start_len, 3, -1):
-        srch = seq_str[-i:]
-        mtch = []
-        for k in range(len(db_str) - i):
-            if db_str[k:k+i] == srch:
-                mtch.append(db_str[k+i])
-        if mtch:
-            dom = Counter(mtch).most_common(1)[0][0]
-            is_big = int(dom) >= 5
-            return "BIG" if is_big else "SMALL"
-    return None
+# =========================================================
+# ৪. TIGER PRO অ্যানালিটিক্স ইঞ্জিন
+# =========================================================
+def calculate_tiger_pro(market_records):
+    """টাইগার প্রো - ডিপ ট্রেন্ড ও মুভিং এভারেজ অ্যানালাইজার"""
+    if len(market_records) < 10:
+        return "BIG"
+    
+    sample = market_records[:100]
+    last_num = sample[0]["number"]
+    
+    recent_10_nums = [x["number"] for x in sample[:10]]
+    avg_10 = sum(recent_10_nums) / float(len(recent_10_nums))
+    
+    if avg_10 > 4.5:
+        pred_size = "BIG" if recent_10_nums.count(last_num) < 3 else "SMALL"
+    else:
+        pred_size = "SMALL" if recent_10_nums.count(last_num) < 3 else "BIG"
+        
+    return pred_size
 
+# =========================================================
+# ৫. লাইভ মার্কেট ডাটা ফেচার
+# =========================================================
 def fetch_latest_results():
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "Content-Type": "application/json"
     }
-    payload = {"pageNumber": 1, "pageSize": 15}
+    payload = {"pageNumber": 1, "pageSize": 50}
     try:
         res = requests.post(API_URL, json=payload, headers=headers, timeout=5)
         if res.status_code != 200:
             res = requests.get(API_URL, headers=headers, timeout=5)
         data = res.json()
+        
         def extract_list(d):
-            if isinstance(d, list) and len(d)>0 and isinstance(d[0], dict) and ('issueNumber' in d[0] or 'issue' in d[0]):
+            if isinstance(d, list) and len(d) > 0 and isinstance(d[0], dict) and ('issueNumber' in d[0] or 'issue' in d[0]):
                 return d
             elif isinstance(d, dict):
                 for v in d.values():
                     found = extract_list(v)
-                    if found: return found
+                    if found:
+                        return found
             return None
+            
         issue_list = extract_list(data)
         if issue_list:
             parsed = []
@@ -100,76 +123,134 @@ def fetch_latest_results():
                 issue = str(item.get('issueNumber', item.get('issue', '')))
                 num = item.get('number', item.get('result', -1))
                 if issue and num != -1:
-                    parsed.append((issue, int(num)))
+                    parsed.append({"period": issue, "number": int(num)})
             return parsed
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[Fetch Error] Data retrieve failed: {e}")
     return []
 
-# ================= TELETHON (Userbot) ফাংশনস =================
-async def start_group_call(channel_id):
-    """অটোমেটিক চ্যানেলে লাইভ স্টার্ট করার ফাংশন"""
-    try:
-        try:
-            entity = await client.get_entity(int(channel_id))
-        except ValueError:
-            entity = await client.get_entity(channel_id)
-            
-        await client(CreateGroupCallRequest(
-            peer=entity,
-            random_id=random.randint(100000, 9999999),
-            title="🔴 Live Signal Room"
-        ))
-        print(f"[+] Successfully started Live Stream in {channel_id}")
-    except Exception as e:
-        print(f"[-] Live Stream Error (Already running or issue): {e}")
-
-@client.on(events.Raw)
-async def auto_unmute_handler(update):
-    """লাইভে কেউ জয়েন করলেই অটোমেটিক আনমিউট করবে"""
+# =========================================================
+# ৬. টেলিথন ইউজারবট (অটো লাইভ ও অটো আনমিউট)
+# =========================================================
+@telethon_client.on(events.Raw)
+async def auto_unmute_participants(update):
+    """লাইভে কেউ যুক্ত হলে তাকে স্বয়ংক্রিয়ভাবে আনমিউট করবে"""
     if isinstance(update, UpdateGroupCallParticipants):
         for participant in update.participants:
-            if participant.muted:
+            if getattr(participant, 'muted', False):
                 try:
-                    await client(EditGroupCallParticipantRequest(
+                    await telethon_client(EditGroupCallParticipantRequest(
                         call=update.call,
                         participant=participant.peer,
                         muted=False
                     ))
-                    print("[+] এক ইউজারকে অটো আনমিউট করা হয়েছে!")
-                except Exception as e:
+                    print("[+] Auto-unmuted participant in live stream.")
+                except Exception:
                     pass
 
-# ================= TELEBOT এডমিন কমান্ডস =================
+async def async_start_live(channel_id):
+    """চ্যানেলে লাইভ স্ট্রিম তৈরি করার ফাংশন"""
+    try:
+        try:
+            target_peer = int(channel_id)
+        except ValueError:
+            target_peer = channel_id
+            
+        entity = await telethon_client.get_entity(target_peer)
+        await telethon_client(CreateGroupCallRequest(
+            peer=entity,
+            random_id=random.randint(100000, 9999999),
+            title="🔴 DRX-TM Official Live Signals"
+        ))
+        print(f"[Telethon] Live started successfully on {channel_id}!")
+        return True
+    except Exception as e:
+        print(f"[Telethon Error] Live start failed on {channel_id}: {e}")
+        return False
+
+def trigger_start_live(channel_id):
+    """সিঙ্ক থ্রেড থেকে অ্যাসিনক্রোনাস টেলিথন লাইভ চালু করা"""
+    if telethon_loop and telethon_loop.is_running():
+        asyncio.run_coroutine_threadsafe(async_start_live(channel_id), telethon_loop)
+
+def start_telethon_thread():
+    """টেলিথন ক্লায়েন্ট চালানোর জন্য ডেডিকেটেড থ্রেড লুপ"""
+    global telethon_loop
+    telethon_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(telethon_loop)
+    
+    async def runner():
+        await telethon_client.start()
+        print("[+] Telethon Userbot is Online and Ready.")
+        await telethon_client.run_until_disconnected()
+        
+    telethon_loop.run_until_complete(runner())
+
+# =========================================================
+# ৭. টেলিগ্রাম বট হ্যান্ডলার ও অ্যাডমিন প্যানেল
+# =========================================================
+@bot.message_handler(commands=['start'])
+def handle_start(message):
+    bot.reply_to(message, "স্বাগতম! চ্যানেল সেটআপ করতে /admin88 কমান্ড দিন।")
+
 @bot.message_handler(commands=['admin88'])
-def admin_panel(message):
-    markup = types.InlineKeyboardMarkup(row_width=1)
+def handle_admin88(message):
+    markup = types.InlineKeyboardMarkup(row_width=2)
     btn_add = types.InlineKeyboardButton("➕ Add Your Channel", callback_data="add_channel")
-    markup.add(btn_add)
-    bot.send_message(message.chat.id, "<b>⚙️ Admin Panel</b>\nচ্যানেলে সিগন্যাল দেওয়ার জন্য নিচের বাটনে ক্লিক করুন:", reply_markup=markup)
+    btn_help = types.InlineKeyboardButton("ℹ️ Help / নিয়মাবলী", callback_data="admin_help")
+    markup.add(btn_add, btn_help)
+    
+    bot.send_message(
+        message.chat.id,
+        "<b>⚙️ এডমিন কন্ট্রোল প্যানেল</b>\n\n"
+        "আপনার চ্যানেলে সিগন্যাল ও অটো-লাইভ সেটআপ করতে নিচের বাটনে চাপুন:",
+        reply_markup=markup
+    )
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
     if call.data == "add_channel":
-        msg = bot.send_message(call.message.chat.id, "প্রথমে আপনার চ্যানেলে এই বটটিকে Admin দিন।\n\nAdmin দেওয়ার পর আপনার চ্যানেল আইডি (যেমন: -100123...) সেন্ড করুন:")
-        bot.register_next_step_handler(msg, process_channel_id)
+        msg = bot.send_message(
+            call.message.chat.id,
+            "<b>ধাপ ১:</b> প্রথমে এই বট এবং আপনার ইউজারবটকে আপনার চ্যানেলে <b>Admin</b> পারমিশন দিন।\n\n"
+            "<b>ধাপ ২:</b> আপনার চ্যানেলের ইউজারনেম (যেমন: <code>@channelusername</code>) অথবা চ্যানেল আইডি (যেমন: <code>-100123456789</code>) এখানে লিখে সেন্ড করুন:"
+        )
+        bot.register_next_step_handler(msg, process_channel_registration)
+    elif call.data == "admin_help":
+        help_text = (
+            "<b>💡 ব্যবহারের নিয়ম:</b>\n"
+            "১. চ্যানেল অ্যাড করার পর সময় নির্ধারণ করতে <code>/TM</code> কমান্ড ব্যবহার করুন।\n"
+            "২. ফরম্যাট: <code>/TM 10:30AM-1:00PM</code> অথবা <code>/TM 14:00-16:00</code>\n"
+            "৩. নির্ধারিত সময়ে অটোমেটিক লাইভ শুরু হবে এবং সিগন্যাল চলবে।"
+        )
+        bot.send_message(call.message.chat.id, help_text)
 
-def process_channel_id(message):
+def process_channel_registration(message):
     channel_id = message.text.strip()
     user_id = message.chat.id
+    
     with db_lock:
         if user_id not in users_db:
-            users_db[user_id] = {"schedules": [], "state": "WAITING", "target_issue": None, "pending_pred": None, "last_was_win": True}
+            users_db[user_id] = {
+                "schedules": [],
+                "state": "WAITING",
+                "target_issue": None,
+                "pending_pred": None,
+                "last_was_win": True,
+                "live_active": False
+            }
         users_db[user_id]["channel_id"] = channel_id
-    bot.send_message(user_id, "<b>ডান ওকে ডান ✅</b>", parse_mode="HTML")
+        
+    bot.send_message(user_id, "<b>ডান ওকে ডান</b> ✅")
 
 @bot.message_handler(regexp=r'(?i)^/TM\s+\d{1,2}:\d{2}.*')
 def set_time_schedule(message):
     user_id = message.chat.id
     text = message.text.upper()
+    
     with db_lock:
         if user_id not in users_db or not users_db[user_id].get("channel_id"):
-            bot.send_message(user_id, "⚠️ অনুগ্রহ করে আগে /admin88 কমান্ড দিয়ে আপনার চ্যানেল অ্যাড করুন।")
+            bot.send_message(user_id, "⚠️ অনুগ্রহ করে প্রথমে /admin88 কমান্ড দিয়ে চ্যানেল যুক্ত করুন।")
             return
             
     match = re.search(r'/TM\s+(\d{1,2}):(\d{2})\s*(AM|PM)?\s*-\s*(\d{1,2}):(\d{2})\s*(AM|PM)?', text)
@@ -177,12 +258,14 @@ def set_time_schedule(message):
         sh, sm, sampm, eh, em, eampm = match.groups()
         sh, sm, eh, em = int(sh), int(sm), int(eh), int(em)
         
+        # Start Time ক্যালকুলেশন
         if sampm:
             if sampm == 'PM' and sh != 12: sh += 12
             if sampm == 'AM' and sh == 12: sh = 0
         else:
             if sh < 12 and sh != 0: sh += 12
             
+        # End Time ক্যালকুলেশন
         if eampm:
             if eampm == 'PM' and eh != 12: eh += 12
             if eampm == 'AM' and eh == 12: eh = 0
@@ -192,16 +275,15 @@ def set_time_schedule(message):
         with db_lock:
             users_db[user_id]["schedules"] = [(sh, sm, eh, em)]
             
-        # ইউজারের ইনবক্সে মেসেজ যাবে, চ্যানেলে নয়
-        bot.send_message(user_id, f"হ্যাঁ, আমরা {message.text.replace('/TM ', '')} থেকে সিগন্যাল দিব। 🎯")
+        # শুধুমাত্র ব্যবহারকারীকে জানানো হবে, চ্যানেলে মেসেজ যাবে না
+        time_display = message.text.replace('/TM ', '').replace('/tm ', '')
+        bot.send_message(user_id, f"হ্যাঁ, আমরা {time_display} থেকে সিগন্যাল দিব। 🎯")
+    else:
+        bot.send_message(user_id, "ভুল ফরম্যাট! সঠিক ফরম্যাট: /TM 10:30AM-1:00PM")
 
-# ================= কোর সিগন্যাল ও মনিটর লুপ =================
-def format_12hr(hour, minute):
-    ampm = "AM" if hour < 12 else "PM"
-    h12 = hour % 12
-    if h12 == 0: h12 = 12
-    return f"{h12:02d}:{minute:02d} {ampm}"
-
+# =========================================================
+# ৮. সিগন্যাল ব্রডকাস্ট ও টাইম ভ্যালিডেশন
+# =========================================================
 def is_in_schedule(now, schedules):
     current_minutes = now.hour * 60 + now.minute
     for (sh, sm, eh, em) in schedules:
@@ -213,22 +295,30 @@ def is_in_schedule(now, schedules):
 
 def send_prediction_signal(channel_id, issue, prediction):
     short_issue = str(issue)[-6:] 
-    digits = "/".join(random.sample(['5','6','7','8','9'], 2)) if prediction == "BIG" else "/".join(random.sample(['0','1','2','3','4'], 2))
+    if prediction == "BIG":
+        digits = "/".join(random.sample(['5', '6', '7', '8', '9'], 2))
+    else:
+        digits = "/".join(random.sample(['0', '1', '2', '3', '4'], 2))
         
-    text = f"""🌿🍁🌿 {prediction} SIGNAL 🌿🍁🌿
-▱▱▱▱▱▱▱▱▱▱▱▱▱▱
-💎 Period   ➤  {short_issue}
-🎯 Action   ➤  BET {prediction} 🌹
-⚡ digit   ➤   {digits}
-▱▱▱▱▱▱▱▱▱▱▱▱▱▱"""
+    text = (
+        f"🌿🍁🌿 {prediction} SIGNAL 🌿🍁🌿\n"
+        f"▱▱▱▱▱▱▱▱▱▱▱▱▱▱\n"
+        f"💎 Period   ➤  {short_issue}\n"
+        f"🎯 Action   ➤  BET {prediction} 🌹\n"
+        f"⚡ digit   ➤   {digits}\n"
+        f"▱▱▱▱▱▱▱▱▱▱▱▱▱▱"
+    )
     try:
         bot.send_message(channel_id, text)
-        print(f"[*] Signal Sent: Period {short_issue} -> {prediction} (Digits: {digits}) to {channel_id}")
+        print(f"[*] Signal Sent to {channel_id}: Period {short_issue} -> {prediction}")
     except Exception as e:
-        print(f"[Telegram Error] মেসেজ পাঠানো সম্ভব হয়নি: {e}")
+        print(f"[Error] Failed to send signal to {channel_id}: {e}")
 
-def market_monitor_loop(async_loop, db_string):
-    global LAST_MORNING_STICKER_DATE
+# =========================================================
+# ৯. মূল কোর মনিটরিং ও এক্সিকিউশন লুপ
+# =========================================================
+def market_monitor_loop():
+    print("[+] Market Monitoring Engine Activated.")
     while True:
         try:
             results = fetch_latest_results()
@@ -236,7 +326,7 @@ def market_monitor_loop(async_loop, db_string):
                 time.sleep(2)
                 continue
                 
-            curr_issue, curr_num = results[0]
+            curr_issue = results[0]["period"]
             now = datetime.now(BD_TIMEZONE)
             
             with db_lock:
@@ -245,45 +335,40 @@ def market_monitor_loop(async_loop, db_string):
             for user_id, udata in users_list:
                 channel_id = udata.get("channel_id")
                 schedules = udata.get("schedules", [])
+                
                 if not channel_id or not schedules:
                     continue
-
-                # মর্নিং স্টিকার চেক
-                if now.hour == 5 and now.minute == 0:
-                    if LAST_MORNING_STICKER_DATE != now.date():
-                        try:
-                            bot.send_sticker(channel_id, MORNING_STICKER)
-                        except: pass
-                        LAST_MORNING_STICKER_DATE = now.date()
                     
                 in_schedule = is_in_schedule(now, schedules)
                 state = udata["state"]
 
-                # --- সিগন্যাল শুরু এবং লাইভ স্টার্ট ---
+                # ক. সেশন শুরু হওয়া
                 if in_schedule and state == "WAITING":
                     udata["state"] = "RUNNING"
-                    udata["last_was_win"] = True 
-                    try: bot.send_sticker(channel_id, START_STICKER)
-                    except: pass
+                    udata["last_was_win"] = True
+                    try:
+                        bot.send_sticker(channel_id, START_STICKER)
+                    except Exception as e:
+                        print(f"Error sending start sticker: {e}")
+                        
+                    # স্বয়ংক্রিয় লাইভ স্ট্রিম শুরু
+                    if not udata.get("live_active"):
+                        trigger_start_live(channel_id)
+                        udata["live_active"] = True
+                        
+                    print(f"[+] Started Session & Triggered Live for: {channel_id}")
                     
-                    # টেলিথন (Userbot) দিয়ে অটোমেটিক লাইভ শুরু করার কমান্ড পাঠানো
-                    asyncio.run_coroutine_threadsafe(start_group_call(channel_id), async_loop)
-                    print(f"[+] Session Started for {channel_id} via Auto Schedule!")
-                    
+                # খ. শিডিউল শেষ হলে সেফ স্টপ স্টেটে যাওয়া
                 elif not in_schedule and state == "RUNNING":
-                    udata["state"] = "STOPPING" # সিগন্যাল বন্ধের প্রক্রিয়া
+                    udata["state"] = "STOPPING"
+                    print(f"[-] Session entering STOPPING mode for: {channel_id}")
 
-                # --- রেজাল্ট চেক ও স্টিকার ---
+                # গ. চলমান প্রেডিকশনের ফলাফল মূল্যায়ন
                 target_issue = udata.get("target_issue")
                 pending_pred = udata.get("pending_pred")
                 
                 if target_issue and curr_issue >= target_issue:
-                    target_num = None
-                    for issue, num in results:
-                        if issue == target_issue:
-                            target_num = num
-                            break
-
+                    target_num = next((r["number"] for r in results if r["period"] == target_issue), None)
                     if target_num is not None:
                         actual_is_big = (target_num >= 5)
                         predicted_is_big = (pending_pred == "BIG")
@@ -292,58 +377,60 @@ def market_monitor_loop(async_loop, db_string):
                         try:
                             if is_win:
                                 bot.send_sticker(channel_id, random.choice(WIN_STICKERS))
-                                print(f"[WIN] Result: {target_num}, Pred: {pending_pred} in {channel_id}")
+                                print(f"[WIN] Result: {target_num} matched with {pending_pred}")
                             else:
                                 bot.send_sticker(channel_id, LOSS_STICKER)
-                                print(f"[LOSS] Result: {target_num}, Pred: {pending_pred} in {channel_id}")
-                        except: pass
+                                print(f"[LOSS] Result: {target_num} failed for {pending_pred}")
+                        except Exception as e:
+                            print(f"Sticker dispatch error: {e}")
                         
                         udata["last_was_win"] = is_win
                         udata["target_issue"] = None
                         udata["pending_pred"] = None
 
-                        # উইন হওয়ার পর যদি STOPPING স্টেটে থাকে, তবে সেশন ক্লোজ স্টিকার দিয়ে শেষ করবে
+                        # উইন সম্পন্ন হলে এবং শিডিউল ওভার থাকলে ক্লোজ স্টিকার সেন্ড করে সেশন বন্ধ হবে
                         if udata["state"] == "STOPPING" and is_win:
-                            try: bot.send_sticker(channel_id, END_STICKER)
-                            except: pass
+                            try:
+                                bot.send_sticker(channel_id, END_STICKER)
+                            except Exception as e:
+                                print(f"End sticker error: {e}")
                             udata["state"] = "WAITING"
-                            print(f"[-] Session Stopped safely! (After a Win) in {channel_id}")
+                            udata["live_active"] = False
+                            print(f"[✓] Session Safely Finished on Win for {channel_id}")
 
-                # --- নতুন প্রেডিকশন (আপনার অরিজিনাল ডাটাবেস লজিক) ---
+                # ঘ. পরবর্তী রাউন্ডের জন্য TIGER PRO প্রেডিকশন তৈরি
                 if (udata["state"] == "RUNNING" or udata["state"] == "STOPPING") and udata.get("target_issue") is None:
-                    history_nums = [str(r[1]) for r in results[:10]]
-                    seq_str = "".join(reversed(history_nums))
-                    
-                    prediction = run_prediction(seq_str, db_string)
-                    if prediction:
-                        next_issue = str(int(curr_issue) + 1)
-                        udata["pending_pred"] = prediction
-                        udata["target_issue"] = next_issue
-                        send_prediction_signal(channel_id, next_issue, prediction)
+                    prediction = calculate_tiger_pro(results)
+                    next_issue = str(int(curr_issue) + 1)
+                    udata["pending_pred"] = prediction
+                    udata["target_issue"] = next_issue
+                    send_prediction_signal(channel_id, next_issue, prediction)
                     
         except Exception as e:
-            print(f"Error in main loop: {e}")
+            print(f"[Loop Exception] {e}")
             
-        time.sleep(3)
+        time.sleep(2.5)
 
-# ================= বট স্টার্টার ও থ্রেডিং =================
+# =========================================================
+# ১০. সিস্টেম লঞ্চার
+# =========================================================
 if __name__ == "__main__":
-    db_string = load_database()
-    if not db_string:
-        print("Database ছাড়া স্ক্রিপ্ট চলতে পারবে না। বন্ধ করা হচ্ছে...")
-        sys.exit()
-
-    print("\n[*] Advanced Multi-User Auto Signal + Live Stream Bot Started...")
-    print("[+] Bot is waiting for /admin88 Commands...\n")
+    print("=" * 60)
+    print("   DRX-TM TIGER PRO & TELETHON AUTO LIVE SYSTEM ONLINE   ")
+    print("=" * 60)
     
-    # টেলিটক (Telebot) পোলের জন্য একটি আলাদা থ্রেড
-    threading.Thread(target=bot.infinity_polling, daemon=True).start()
+    # টেলিথন ক্লায়েন্ট থ্রেড শুরু
+    th_userbot = threading.Thread(target=start_telethon_thread, daemon=True)
+    th_userbot.start()
     
-    # ইভেন্ট লুপ নিয়ে অরিজিনাল মনিটর থ্রেড রান করানো হলো
-    main_loop = asyncio.get_event_loop()
-    threading.Thread(target=market_monitor_loop, args=(main_loop, db_string), daemon=True).start()
+    # মার্কেট মনিটর ও অটোমেশন থ্রেড শুরু
+    th_monitor = threading.Thread(target=market_monitor_loop, daemon=True)
+    th_monitor.start()
     
-    # টেলিথন (Userbot) ক্লায়েন্ট চালু রাখা হলো
-    client.start()
-    print("[+] Userbot Active & Waiting to Start Live Streams!")
-    client.run_until_disconnected()
+    # টেলিগ্রাম বট লিসেনার
+    while True:
+        try:
+            bot.infinity_polling(timeout=25, long_polling_timeout=10)
+        except Exception as e:
+            print(f"[Bot Polling Crashed]: {e}. Reconnecting in 5s...")
+            time.sleep(5)
