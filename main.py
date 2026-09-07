@@ -1,21 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-DRX-TM WinGo Multi-Market Dual/Triple Engine Telegram Bot
+DRX-TM WinGo Multi-Market Professional Telegram Bot
 Markets:
-  - WinGo 30S: https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json (Direct Call)
+  - WinGo 30S: https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json
   - WinGo 5M:  https://advanced-predict1.ai.studio/apipid.json
-Special Engine:
-  - TIGER PRO WINNER (Exclusive to 30S Market: 2-Digit Sniper + JAC Outcome)
 Features:
-  - Zero Emoji Clean Professional VIP UI
-  - Direct Stream Fetching (No Proxy, No Hardcoded/Fake Seed Data)
-  - Seamless In-Place Window Overwrite
+  - Exact Same 4-Column Table Display for Both 30S & 5M Markets
+  - Zero Emoji Clean VIP UI
+  - Anti-Block Multi-Layer HTTP/2 Fetcher (Fixes Empty Dash Issue)
+  - TIGER PRO 2-Digit High-Accuracy Engine with JAC Outcome
 """
 
 import time
 import json
 import logging
 import threading
+import subprocess
+import urllib.request
+import ssl
 import requests
 import urllib3
 from collections import Counter
@@ -52,9 +54,6 @@ logger = logging.getLogger(__name__)
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
-# ডাইরেক্ট এপিআই কল করার ডেডিকেটেড সেশন
-session = requests.Session()
-
 # =========================================================
 # VIP FONT ENGINE (𝐀𝐁𝐂... 𝟎𝟏𝟐...)
 # =========================================================
@@ -73,7 +72,7 @@ def to_vip(text: str) -> str:
     return "".join(res)
 
 # =========================================================
-# RULES & NUMBERS
+# RULES & DEFINITIONS
 # =========================================================
 VIOLET_NUMBERS = {0, 5}
 RED_NUMBERS = {2, 4, 6, 8}
@@ -93,13 +92,13 @@ def get_size(num: int) -> str:
     return "BIG" if num in BIG_NUMBERS else "SMALL"
 
 # =========================================================
-# STATE STORAGE (NO HARDCODED SEED DATA)
+# STATE STORAGE
 # =========================================================
 class SingleMarketState:
     def __init__(self, market_key: str):
         self.market_key = market_key
         self.current_period = ""
-        self.market_data = []          # কোনো ফেক ডেটা নেই, সরাসরি এপিআই থেকে আসবে
+        self.market_data = []
 
         # RED PRO
         self.pred_red = {"period": "", "size": "--", "num": "--", "color": "--"}
@@ -111,7 +110,7 @@ class SingleMarketState:
         self.history_green = {}
         self.win_loss_green = {}
 
-        # TIGER PRO (৩0 সেকেন্ডের বিশেষ ইঞ্জিন)
+        # TIGER PRO (30S এর বিশেষ ২-ডিজিট হাই স্নাইপার)
         self.pred_tiger = {"period": "", "size": "--", "num": "--", "color": "--"}
         self.history_tiger = {}
         self.win_loss_tiger = {}
@@ -141,91 +140,122 @@ class BotState:
 state = BotState()
 
 # =========================================================
-# DIRECT API FETCHER (HANDLES DOWNLOAD STREAM DIRECTLY)
+# ANTI-BLOCK API FETCHER (HTTP/2 + CLOUDFLARE BYPASS)
 # =========================================================
-def fetch_direct_api(market_key: str):
-    """
-    কোনো প্রক্সি ছাড়া সরাসরি ডাইরেক্ট এপিআই কল করে।
-    সার্ভার ফাইল ডাউনলোড হিসেবে স্ট্রিম পাঠালেও সরাসরি বাইনারি কন্টেন্ট পড়ে পার্স করে।
-    """
+def fetch_api_raw_json(url: str):
+    # মেথড ১: সিস্টেম কার্ল (Cloudflare TLS ব্লকেজ সরাসরি বাইপাস করে)
+    try:
+        cmd = [
+            "curl", "-s", "-k", "-L", "--compressed",
+            "-m", "5",
+            "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "-H", "Accept: application/json, text/plain, */*",
+            "-H", "X-Requested-With: XMLHttpRequest",
+            url
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=6)
+        if res.returncode == 0 and res.stdout.strip():
+            raw_text = res.stdout.strip()
+            if "{" in raw_text and "}" in raw_text:
+                start = raw_text.find("{")
+                end = raw_text.rfind("}") + 1
+                return json.loads(raw_text[start:end])
+    except Exception:
+        pass
+
+    # মেথড ২: requests লাইব্রেরি
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "X-Requested-With": "XMLHttpRequest",
+        "Origin": "https://ar-lottery01.com",
+        "Referer": "https://ar-lottery01.com/"
+    }
+    try:
+        resp = requests.get(url, headers=headers, verify=False, timeout=5)
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+
+    # মেথড ৩: urllib
+    try:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=5, context=ctx) as r:
+            return json.loads(r.read().decode("utf-8-sig", errors="ignore"))
+    except Exception:
+        pass
+
+    return None
+
+def fetch_and_format_market(market_key: str):
     conf = MARKETS_CONFIG[market_key]
     url = conf["api_url"]
+    data = fetch_api_raw_json(url)
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Accept": "*/*",
-        "Connection": "keep-alive"
-    }
+    if not data:
+        return []
 
-    try:
-        resp = session.get(url, headers=headers, verify=False, timeout=8)
-        if resp.status_code == 200:
-            # ডাউনলোড রেসপন্স সরাসরি ডিকোড
-            raw_bytes = resp.content
-            raw_text = raw_bytes.decode("utf-8-sig", errors="ignore")
-            data = json.loads(raw_text)
+    raw_list = []
+    if isinstance(data, dict):
+        d_obj = data.get("data")
+        if isinstance(d_obj, dict) and "list" in d_obj:
+            raw_list = d_obj["list"]
+        elif isinstance(d_obj, list):
+            raw_list = d_obj
+        elif "prediction_history" in data:
+            raw_list = data["prediction_history"]
+        else:
+            for k in ["records", "rows", "list"]:
+                if k in data and isinstance(data[k], list):
+                    raw_list = data[k]
+                    break
+    elif isinstance(data, list):
+        raw_list = data
 
-            raw_list = []
-            if isinstance(data, dict):
-                d_obj = data.get("data")
-                if isinstance(d_obj, dict) and "list" in d_obj:
-                    raw_list = d_obj["list"]
-                elif isinstance(d_obj, list):
-                    raw_list = d_obj
-                elif "prediction_history" in data:
-                    raw_list = data["prediction_history"]
-                else:
-                    for k in ["records", "rows", "list"]:
-                        if k in data and isinstance(data[k], list):
-                            raw_list = data[k]
-                            break
-            elif isinstance(data, list):
-                raw_list = data
+    formatted = []
+    for item in raw_list:
+        if isinstance(item, dict):
+            p_raw = item.get("issueNumber") or item.get("period")
+            n_raw = item.get("number")
+            if p_raw is None or n_raw is None:
+                continue
 
-            formatted = []
-            for item in raw_list:
-                if isinstance(item, dict):
-                    p_raw = item.get("issueNumber") or item.get("period")
-                    n_raw = item.get("number")
-                    if p_raw is None or n_raw is None:
-                        continue
+            period = str(p_raw).strip()
+            try:
+                num = int(n_raw)
+            except (ValueError, TypeError):
+                continue
 
-                    period = str(p_raw).strip()
-                    try:
-                        num = int(n_raw)
-                    except (ValueError, TypeError):
-                        continue
+            c_raw = str(item.get("color", "")).strip().lower()
+            if "violet" in c_raw:
+                color = "VIOLET"
+            elif "red" in c_raw:
+                color = "RED"
+            elif "green" in c_raw:
+                color = "GREEN"
+            else:
+                color = get_color(num)
 
-                    c_raw = str(item.get("color", "")).strip().lower()
-                    if "violet" in c_raw:
-                        color = "VIOLET"
-                    elif "red" in c_raw:
-                        color = "RED"
-                    elif "green" in c_raw:
-                        color = "GREEN"
-                    else:
-                        color = get_color(num)
+            size = get_size(num)
 
-                    size = get_size(num)
-                    formatted.append({
-                        "period": period,
-                        "number": num,
-                        "size": size,
-                        "color": color
-                    })
+            formatted.append({
+                "period": period,
+                "number": num,
+                "size": size,
+                "color": color
+            })
 
-            if formatted:
-                return formatted
-    except Exception as e:
-        logger.error(f"Direct API Fetch Error [{market_key}]: {e}")
-
-    return []
+    return formatted
 
 # =========================================================
 # PREDICTION ENGINES
 # =========================================================
 
-# ১. TIGER PRO ENGINE (বিশেষ ২-ডিজিট হাই স্নাইপার + JAC রেজল্যুশন)
+# ১. TIGER PRO ENGINE (বিশেষ ২-ডিজিট স্নাইপার)
 def calculate_tiger_pro_prediction(market_records):
     if len(market_records) < 5:
         return {"size": "BIG", "num": "3,7", "color": "GREEN"}
@@ -279,11 +309,7 @@ def calculate_tiger_pro_prediction(market_records):
     else:
         pred_color = "GREEN" if green_c >= 6 else "RED"
 
-    return {
-        "size": pred_size,
-        "num": num_str,
-        "color": pred_color
-    }
+    return {"size": pred_size, "num": num_str, "color": pred_color}
 
 # ২. RED PRO ENGINE
 def calculate_red_pro_prediction(market_records):
@@ -389,7 +415,7 @@ def calculate_green_pro_prediction(market_records):
     return {"size": pred_size, "num": num_str, "color": pred_color}
 
 # =========================================================
-# STATE UPDATE & EVALUATOR
+# EVALUATION & STATE MANAGEMENT
 # =========================================================
 def evaluate_history_outcomes(m_state, data):
     for rec in data[:6]:
@@ -458,7 +484,7 @@ def update_market_state(m_key: str, data: list):
         m_state.current_period = next_p
         evaluate_history_outcomes(m_state, m_state.market_data)
 
-        # প্রেডিকশন রানিং
+        # প্রেডিকশন ইঞ্জিন ক্যালকুলেশন
         pr_r = calculate_red_pro_prediction(m_state.market_data)
         m_state.pred_red = {"period": next_p, "size": pr_r["size"], "num": pr_r["num"], "color": pr_r["color"]}
         m_state.history_red[next_p] = {**m_state.pred_red, "timestamp": datetime.now()}
@@ -475,27 +501,26 @@ def update_market_state(m_key: str, data: list):
         m_state.clean_old_records()
 
 # =========================================================
-# WORKER THREADS (DIRECT POLLING)
+# BACKGROUND WORKERS
 # =========================================================
 def worker_30s():
     while True:
         try:
-            data = fetch_direct_api("30S")
+            data = fetch_and_format_market("30S")
             if data:
                 update_market_state("30S", data)
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] [30S DIRECT API] Fetched {len(data)} rows. Period: {state.markets['30S'].current_period}")
         except Exception as e:
-            logger.error(f"30S Direct Worker Error: {e}")
+            logger.error(f"30S Loop Error: {e}")
         time.sleep(2)
 
 def worker_5m():
     while True:
         try:
-            data = fetch_direct_api("5M")
+            data = fetch_and_format_market("5M")
             if data:
                 update_market_state("5M", data)
         except Exception as e:
-            logger.error(f"5M Worker Error: {e}")
+            logger.error(f"5M Loop Error: {e}")
         time.sleep(5)
 
 def live_ui_updater():
@@ -509,7 +534,7 @@ def live_ui_updater():
                     markup = create_market_markup(
                         market_key=info.get("market", "30S"),
                         page=info.get("page", 1),
-                        mode=info.get("mode", "TIGER")
+                        mode=info.get("mode", "TIGER" if info.get("market") == "30S" else "RED")
                     )
                     bot.edit_message_reply_markup(
                         chat_id=chat_id,
@@ -526,7 +551,7 @@ def live_ui_updater():
         time.sleep(1)
 
 # =========================================================
-# UI BUILDERS
+# UI MARKUPS
 # =========================================================
 def get_market_selection_markup():
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -568,11 +593,11 @@ def create_market_markup(market_key: str = "30S", page: int = 1, mode: str = "TI
     markup = types.InlineKeyboardMarkup(row_width=4)
 
     # ১. পিরিয়ড বাটন
-    period_str = m_state.current_period or "WAITING..."
+    period_str = m_state.current_period or "CONNECTING..."
     btn_period = types.InlineKeyboardButton(f"{to_vip('PERIOD')}: {to_vip(period_str)}", callback_data="none")
     markup.row(btn_period)
 
-    # ২. টাইমার ও প্রোগ্রেস বার
+    # ২. লাইভ টাইমার ও প্রোগ্রেস বার
     now_ts = int(time.time())
     elapsed = now_ts % interval
     remaining = interval - elapsed
@@ -603,7 +628,7 @@ def create_market_markup(market_key: str = "30S", page: int = 1, mode: str = "TI
     btn_color = types.InlineKeyboardButton(f"{c_val}", callback_data="none")
     markup.row(btn_size, btn_num, btn_color)
 
-    # ৪. মার্কেট ডাটা টেবিল (প্রতি পেজে ১০টি রো)
+    # ৪. মার্কেট ডাটা টেবিল (৫ মিনিটের মতো হুবহু একই ৪-কলাম ফরম্যাট)
     page = max(1, min(TOTAL_PAGES, page))
     start_idx = (page - 1) * 10
     end_idx = start_idx + 10
@@ -713,6 +738,12 @@ def handle_callbacks(call):
         chosen_market = parts[1]
         chosen_mode = parts[2]
 
+        # ডেটা খালি থাকলে সাথে সাথে ইনস্ট্যান্ট ফেচ
+        if not state.markets[chosen_market].market_data:
+            immediate_data = fetch_and_format_market(chosen_market)
+            if immediate_data:
+                update_market_state(chosen_market, immediate_data)
+
         header_text = get_dashboard_header(chosen_market, chosen_mode)
         markup = create_market_markup(market_key=chosen_market, page=1, mode=chosen_mode)
 
@@ -778,7 +809,7 @@ def handle_callbacks(call):
         try:
             info = state.active_chats.get(chat_id, {"market": "30S", "page": 1, "mode": "TIGER"})
             m_key = info.get("market", "30S")
-            fresh_data = fetch_direct_api(m_key)
+            fresh_data = fetch_and_format_market(m_key)
             if fresh_data:
                 update_market_state(m_key, fresh_data)
 
@@ -798,23 +829,22 @@ def handle_callbacks(call):
 if __name__ == "__main__":
     print("=" * 60)
     print(f"{to_vip('DARK KILLER')} | {to_vip('DRX-TM')} [SYSTEM ONLINE]")
-    print(f"30S Direct API: {MARKETS_CONFIG['30S']['api_url']}")
-    print(f"5M Direct API:  {MARKETS_CONFIG['5M']['api_url']}")
-    print("No Seed / Hardcoded Data Used. Pure Direct Stream Fetching.")
+    print(f"30S Market Engine: {MARKETS_CONFIG['30S']['api_url']}")
+    print("Connecting to live markets...")
     print("=" * 60)
 
-    # সরাসরি ডাইরেক্ট এপিআই কল করে প্রথম ফেচ
-    live_30s = fetch_direct_api("30S")
-    if live_30s:
-        update_market_state("30S", live_30s)
-        print(f"[DIRECT SUCCESS] 30S API Connected: {len(live_30s)} live records.")
+    # স্টার্টআপেই লাইভ ফেচ
+    init_30s = fetch_and_format_market("30S")
+    if init_30s:
+        update_market_state("30S", init_30s)
+        print(f"[SUCCESS] 30S Market connected: {len(init_30s)} live records loaded.")
 
-    live_5m = fetch_direct_api("5M")
-    if live_5m:
-        update_market_state("5M", live_5m)
-        print(f"[DIRECT SUCCESS] 5M API Connected: {len(live_5m)} live records.")
+    init_5m = fetch_and_format_market("5M")
+    if init_5m:
+        update_market_state("5M", init_5m)
+        print(f"[SUCCESS] 5M Market connected: {len(init_5m)} live records loaded.")
 
-    # ওয়ার্কার থ্রেড চালু
+    # আলাদা ব্যাকগ্রাউন্ড ওয়ার্কার থ্রেড
     threading.Thread(target=worker_30s, daemon=True).start()
     threading.Thread(target=worker_5m, daemon=True).start()
     threading.Thread(target=live_ui_updater, daemon=True).start()
