@@ -1,87 +1,72 @@
 # -*- coding: utf-8 -*-
 """
-DRX-TM WinGo Multi-Market Professional Telegram Bot
-Markets:
-  - WinGo 30S: https://sh-tim-faruk-vai.ai.studio/api/apipid-tiger-pro.json
-  - WinGo 5M:  https://advanced-predict1.ai.studio/apipid.json
+DRX-TM WinGo Multi-Market (30S & 5M) Professional Dual-Engine Telegram Bot
 Features:
-  - Exact Same 4-Column Live Table Display for Both 30S & 5M Markets
-  - Auto-Discovery Pure Market Parser (Handles 'market', 'history', 'list' keys)
-  - Zero Extra Buttons (Single Switch Button Layout Exactly Like 5M)
-  - TIGER PRO 2-Digit High-Accuracy Sniper with JAC Outcome
+  - Zero Emoji Clean Professional VIP UI
+  - Dual Market Engines: WinGo 30-Second & WinGo 5-Minute
+  - Dedicated API Endpoints & Independent Thread Loops
+  - Engine 1: RED PRO WINNER (Skip 2-Page Sequence + Custom Color/Size Resolution)
+  - Engine 2: GREEN PRO WINNER (150-Rounds Markov Transition 3-Digit Sniper)
+  - 50-Pages Dynamic Pagination & In-Place Window Overwrite
 """
 
 import time
 import json
 import logging
 import threading
-import subprocess
-import urllib.request
-import ssl
 import requests
-import urllib3
 from collections import Counter
 from datetime import datetime, timedelta
 import telebot
 from telebot import types
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
 # =========================================================
 # CONFIGURATION
 # =========================================================
 BOT_TOKEN = "8864547814:AAEBQxt864_3n06RLllIqCsN3AuyGmJhSzg"
+TOTAL_PAGES = 50
 
-MARKETS_CONFIG = {
+# মার্কেট কনফিগারেশন
+MARKETS = {
     "30S": {
-        "title": "WINGO 30 SECONDS",
-        "short_title": "WINGO 30S",
-        "primary_url": "https://sh-tim-faruk-vai.ai.studio/api/apipid-tiger-pro.json",
-        "fallback_url": "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json",
+        "name": "WINGO 30 SEC",
+        "short": "30S",
+        "api": "https://sh-tim-faruk-vai.ai.studio/api/apipid-tiger-pro.json",
         "interval": 30
     },
     "5M": {
-        "title": "WINGO 5 MINUTES",
-        "short_title": "WINGO 5M",
-        "primary_url": "https://advanced-predict1.ai.studio/apipid.json",
-        "fallback_url": "https://advanced-predict1.ai.studio/apipid.json",
+        "name": "WINGO 5 MIN",
+        "short": "5M",
+        "api": "https://advanced-predict1.ai.studio/apipid.json",
         "interval": 300
     }
 }
-
-TOTAL_PAGES = 50
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
-session = requests.Session()
-session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Connection": "keep-alive"
-})
-
 # =========================================================
 # VIP FONT ENGINE (𝐀𝐁𝐂... 𝟎𝟏𝟐...)
 # =========================================================
 def to_vip(text: str) -> str:
+    """টেক্সটকে বোল্ড প্রিমিয়াম ভিআইপি ফন্টে রূপান্তর করে"""
     res = []
     for ch in str(text):
         code = ord(ch)
-        if 65 <= code <= 90:
+        if 65 <= code <= 90:     # A-Z -> 𝐀-𝐙
             res.append(chr(0x1D400 + (code - 65)))
-        elif 97 <= code <= 122:
+        elif 97 <= code <= 122:  # a-z -> 𝐚-𝐳
             res.append(chr(0x1D41A + (code - 97)))
-        elif 48 <= code <= 57:
+        elif 48 <= code <= 57:   # 0-9 -> 𝟎-𝟗
             res.append(chr(0x1D7CE + (code - 48)))
         else:
             res.append(ch)
     return "".join(res)
 
 # =========================================================
-# RULES & NUMBERS
+# RULES & AFFINITY DEFINITIONS
 # =========================================================
 VIOLET_NUMBERS = {0, 5}
 RED_NUMBERS = {2, 4, 6, 8}
@@ -101,273 +86,119 @@ def get_size(num: int) -> str:
     return "BIG" if num in BIG_NUMBERS else "SMALL"
 
 # =========================================================
-# STATE STORAGE
+# MARKET DATA STATE CLASS
 # =========================================================
-class SingleMarketState:
-    def __init__(self, market_key: str):
-        self.market_key = market_key
+class MarketState:
+    def __init__(self, key: str, config: dict):
+        self.key = key
+        self.name = config["name"]
+        self.api_url = config["api"]
+        self.interval = config["interval"]
+
         self.current_period = ""
         self.market_data = []
+        self.last_fetched_period = ""
 
-        # RED PRO
+        # RED PRO WINNER স্টোরেজ
         self.pred_red = {"period": "", "size": "--", "num": "--", "color": "--"}
         self.history_red = {}
         self.win_loss_red = {}
 
-        # GREEN PRO
+        # GREEN PRO WINNER স্টোরেজ
         self.pred_green = {"period": "", "size": "--", "num": "--", "color": "--"}
         self.history_green = {}
         self.win_loss_green = {}
 
-        # TIGER PRO (30S এর বিশেষ ২-ডিজিট হাই স্নাইপার)
-        self.pred_tiger = {"period": "", "size": "--", "num": "--", "color": "--"}
-        self.history_tiger = {}
-        self.win_loss_tiger = {}
-
     def clean_old_records(self):
-        cutoff = datetime.now() - timedelta(hours=12)
-        stores = [
-            (self.win_loss_red, self.history_red),
-            (self.win_loss_green, self.history_green),
-            (self.win_loss_tiger, self.history_tiger)
-        ]
-        for store, hist in stores:
+        cutoff = datetime.now() - timedelta(hours=24)
+        for store, hist in [(self.win_loss_red, self.history_red), (self.win_loss_green, self.history_green)]:
             to_del = [p for p, val in hist.items() if val.get("timestamp", datetime.now()) < cutoff]
             for p in to_del:
                 hist.pop(p, None)
                 store.pop(p, None)
 
-class BotState:
+class GlobalBotState:
     def __init__(self):
         self.lock = threading.Lock()
         self.markets = {
-            "30S": SingleMarketState("30S"),
-            "5M": SingleMarketState("5M")
+            "30S": MarketState("30S", MARKETS["30S"]),
+            "5M": MarketState("5M", MARKETS["5M"])
         }
+        # সক্রিয় চ্যাট: {chat_id: {"message_id": int, "market": "30S"|"5M", "mode": "RED"|"GREEN", "page": int}}
         self.active_chats = {}
 
-state = BotState()
+state = GlobalBotState()
 
 # =========================================================
-# ROBUST AUTO-DISCOVERY MARKET PARSER
+# API FETCHER
 # =========================================================
-def parse_records(raw_list):
-    formatted = []
-    for item in raw_list:
-        if not isinstance(item, dict):
-            continue
-
-        # Period / Issue বের করা
-        period = None
-        for pk in ["issueNumber", "period", "issue", "periodNumber", "issue_number", "stage", "id"]:
-            if pk in item and item[pk] is not None:
-                period = str(item[pk]).strip()
-                break
-
-        # Number বের করা
-        num = None
-        for nk in ["number", "num", "open_number", "result", "open_result", "actual_number", "winning_number", "digit"]:
-            if nk in item and item[nk] is not None:
-                try:
-                    s = str(item[nk]).strip()
-                    num = int(s[-1])
-                    break
-                except Exception:
-                    pass
-
-        if period is None or num is None:
-            continue
-
-        # Size বের করা
-        size = None
-        for sk in ["size", "big_small", "bs", "type"]:
-            if sk in item and item[sk]:
-                s_val = str(item[sk]).strip().upper()
-                if s_val in ["BIG", "SMALL"]:
-                    size = s_val
-                    break
-        if not size:
-            size = "BIG" if num >= 5 else "SMALL"
-
-        # Color বের করা
-        color = None
-        for ck in ["color", "colour", "color_result"]:
-            if ck in item and item[ck]:
-                c_val = str(item[ck]).strip().lower()
-                if "violet" in c_val or "purple" in c_val:
-                    color = "VIOLET"
-                    break
-                elif "red" in c_val:
-                    color = "RED"
-                    break
-                elif "green" in c_val:
-                    color = "GREEN"
-                    break
-        if not color:
-            color = "VIOLET" if num in [0, 5] else ("RED" if num in [2, 4, 6, 8] else "GREEN")
-
-        formatted.append({
-            "period": period,
-            "number": num,
-            "size": size,
-            "color": color
-        })
-
-    # ডিসেন্ডিং সর্ট (সর্বশেষ ড্র সবার শুরুতে থাকবে)
+def fetch_api_market(api_url: str):
     try:
-        formatted.sort(key=lambda x: int(x["period"]) if x["period"].isdigit() else x["period"], reverse=True)
-    except Exception:
-        pass
-
-    return formatted
-
-def extract_market_from_json(data):
-    if not data:
-        return []
-    if isinstance(data, list):
-        return parse_records(data)
-    if isinstance(data, dict):
-        # ১. শুধুমাত্র মার্কেট কি (Key) অগ্রাধিকার দেওয়া
-        for k in ["market", "market_data", "market_history", "history", "data", "list", "records", "rows", "prediction_history", "results"]:
-            if k in data:
-                val = data[k]
-                if isinstance(val, list):
-                    res = parse_records(val)
-                    if res:
-                        return res
-                elif isinstance(val, dict):
-                    for sub_k in ["market", "market_data", "list", "records", "rows", "history"]:
-                        if sub_k in val and isinstance(val[sub_k], list):
-                            res = parse_records(val[sub_k])
-                            if res:
-                                return res
-
-        # ২. ডিকশনারির যেকোনো লিস্ট স্ক্যান
-        for k, v in data.items():
-            if isinstance(v, list) and len(v) > 0 and isinstance(v[0], dict):
-                res = parse_records(v)
-                if res:
-                    return res
-    return []
-
-def fetch_json_from_url(url: str):
-    # মেথড ১: Requests
-    try:
-        resp = session.get(url, verify=False, timeout=5)
+        headers = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.get(api_url, headers=headers, timeout=8)
         if resp.status_code == 200:
-            return json.loads(resp.content.decode("utf-8-sig", errors="ignore"))
-    except Exception:
-        pass
+            data = resp.json()
+            raw_list = []
 
-    # মেথড ২: Curl
-    try:
-        cmd = ["curl", "-s", "-k", "-L", "-m", "5", url]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=6)
-        if res.returncode == 0 and res.stdout.strip():
-            raw_text = res.stdout.strip()
-            if "{" in raw_text and "}" in raw_text:
-                start = raw_text.find("{")
-                end = raw_text.rfind("}") + 1
-                return json.loads(raw_text[start:end])
-    except Exception:
-        pass
+            if isinstance(data, dict):
+                raw_list = data.get("prediction_history", [])
+                if not raw_list:
+                    for k in ["data", "list", "records", "rows"]:
+                        if k in data and isinstance(data[k], list):
+                            raw_list = data[k]
+                            break
+            elif isinstance(data, list):
+                raw_list = data
 
-    return None
+            formatted = []
+            for item in raw_list:
+                if isinstance(item, dict):
+                    p_raw = item.get("period")
+                    n_raw = item.get("number")
+                    if p_raw is not None and n_raw is not None:
+                        period = str(p_raw).strip()
+                        try:
+                            num = int(n_raw)
+                        except (ValueError, TypeError):
+                            continue
 
-def fetch_market_data(market_key: str):
-    conf = MARKETS_CONFIG[market_key]
+                        s_raw = str(item.get("size", "")).strip().upper()
+                        c_raw = str(item.get("color", "")).strip().upper()
 
-    # প্রথমে প্রাইমারি এপিআই
-    data = fetch_json_from_url(conf["primary_url"])
-    records = extract_market_from_json(data)
-    if records:
-        return records
+                        size = s_raw if s_raw in ["BIG", "SMALL"] else get_size(num)
+                        color = c_raw if c_raw in ["RED", "GREEN", "VIOLET"] else get_color(num)
 
-    # মিস হলে ফলব্যাক এপিআই
-    if conf.get("fallback_url") and conf["fallback_url"] != conf["primary_url"]:
-        fb_data = fetch_json_from_url(conf["fallback_url"])
-        fb_records = extract_market_from_json(fb_data)
-        if fb_records:
-            return fb_records
+                        formatted.append({
+                            "period": period,
+                            "number": num,
+                            "size": size,
+                            "color": color
+                        })
 
+            if formatted:
+                return formatted[:500]
+    except Exception as e:
+        logger.error(f"API Fetch Error ({api_url}): {e}")
     return []
 
 # =========================================================
 # PREDICTION ENGINES
 # =========================================================
-
-# ১. TIGER PRO ENGINE (বিশেষ ২-ডিজিট স্নাইপার + JAC)
-def calculate_tiger_pro_prediction(market_records):
-    if len(market_records) < 5:
-        return {"size": "BIG", "num": "3,7", "color": "GREEN"}
-
-    recent = market_records[:40]
-    nums = [r["number"] for r in recent]
-    last_num = nums[0]
-
-    freq = Counter(nums)
-    hot_top = [n for n, _ in freq.most_common(3)]
-
-    last_seen = {}
-    for n in range(10):
-        try:
-            last_seen[n] = nums.index(n)
-        except ValueError:
-            last_seen[n] = 99
-
-    gap_sorted = sorted(last_seen.items(), key=lambda x: x[1], reverse=True)
-    gap_candidate = gap_sorted[0][0]
-
-    pool = []
-    if hot_top and hot_top[0] != last_num:
-        pool.append(hot_top[0])
-    else:
-        pool.append((last_num + 3) % 10)
-
-    if gap_candidate not in pool:
-        pool.append(gap_candidate)
-    else:
-        pool.append((last_num + 7) % 10)
-
-    sniper_digits = sorted(pool[:2])
-    num_str = f"{sniper_digits[0]},{sniper_digits[1]}"
-
-    sizes_10 = [r["size"] for r in recent[:10]]
-    big_c = sizes_10.count("BIG")
-    if big_c >= 7:
-        pred_size = "SMALL"
-    elif big_c <= 3:
-        pred_size = "BIG"
-    else:
-        pred_size = "BIG" if (sniper_digits[0] >= 5 or sniper_digits[1] >= 5) else "SMALL"
-
-    colors_10 = [r["color"] for r in recent[:10]]
-    red_c = colors_10.count("RED")
-    green_c = colors_10.count("GREEN")
-
-    if red_c > green_c:
-        pred_color = "RED" if red_c >= 6 else "GREEN"
-    else:
-        pred_color = "GREEN" if green_c >= 6 else "RED"
-
-    return {"size": pred_size, "num": num_str, "color": pred_color}
-
-# ২. RED PRO ENGINE
 def calculate_red_pro_prediction(market_records):
-    if len(market_records) < 5:
-        return {"size": "BIG", "num": "5,8", "color": "RED"}
+    """RED PRO WINNER: প্যাটার্ন স্কিপ ও কাস্টম রেজল্যুশন"""
+    if len(market_records) < 25:
+        return {"size": "--", "num": "--", "color": "--"}
 
     t1 = market_records[0]["number"]
-    t2 = market_records[1]["number"] if len(market_records) > 1 else (t1 + 3) % 10
+    t2 = market_records[1]["number"]
 
     found_idx = -1
-    if len(market_records) >= 20:
-        for i in range(5, len(market_records) - 2):
-            curr_pair = (market_records[i]["number"], market_records[i + 1]["number"])
-            if curr_pair == (t1, t2) or curr_pair == (t2, t1):
-                if i - 1 >= 0 and i + 2 < len(market_records):
-                    found_idx = i
-                    break
+    for i in range(20, len(market_records) - 2):
+        curr_pair = (market_records[i]["number"], market_records[i + 1]["number"])
+        if curr_pair == (t1, t2) or curr_pair == (t2, t1):
+            if i - 1 >= 0 and i + 2 < len(market_records):
+                found_idx = i
+                break
 
     if found_idx == -1:
         n_above = (t1 + 3) % 10
@@ -378,6 +209,7 @@ def calculate_red_pro_prediction(market_records):
 
     pair_nums = {n_above, n_below}
 
+    # কাস্টম কালার রেজল্যুশন
     if pair_nums.issubset(GREEN_AFFINITY) or (9 in pair_nums and 5 in pair_nums) or (3 in pair_nums and 5 in pair_nums) or (9 in pair_nums and 3 in pair_nums):
         pred_color = "GREEN"
     elif pair_nums.issubset(RED_AFFINITY) or (0 in pair_nums and any(x in RED_NUMBERS for x in pair_nums)):
@@ -387,6 +219,7 @@ def calculate_red_pro_prediction(market_records):
         c_below = get_color(n_below)
         pred_color = c_above if c_above == c_below else "GREEN"
 
+    # কাস্টম সাইজ রেজল্যুশন
     if (9 in pair_nums and 5 in pair_nums) or (9 in pair_nums and 3 in pair_nums):
         pred_size = "BIG"
     elif n_above >= 5 and n_below >= 5:
@@ -397,24 +230,33 @@ def calculate_red_pro_prediction(market_records):
         avg = (n_above + n_below) / 2.0
         pred_size = "BIG" if avg >= 4.5 else "SMALL"
 
-    return {"size": pred_size, "num": f"{n_above},{n_below}", "color": pred_color}
+    return {
+        "size": pred_size,
+        "num": f"{n_above},{n_below}",
+        "color": pred_color
+    }
 
-# ৩. GREEN PRO ENGINE
 def calculate_green_pro_prediction(market_records):
-    if len(market_records) < 5:
+    """GREEN PRO WINNER: ১৫০ ড্র মারকভ ও ৩ ডিজিট স্নাইপার"""
+    if len(market_records) < 15:
         return {"size": "BIG", "num": "1,5,9", "color": "GREEN"}
 
     sample = market_records[:150]
     latest_num = sample[0]["number"]
 
+    # মারকভ চেইন ট্রানজিশন
     transitions = []
     for idx in range(len(sample) - 1):
         if sample[idx + 1]["number"] == latest_num:
             transitions.append(sample[idx]["number"])
 
     follow_up_candidates = [n for n, _ in Counter(transitions).most_common(2)]
+
+    # হট ফ্রিকোয়েন্সি
     recent_40 = [r["number"] for r in sample[:40]]
     hot_candidates = [n for n, _ in Counter(recent_40).most_common(3)]
+
+    # রিভার্সাল ক্যান্ডিডেট
     mirror_candidate = (9 - latest_num)
 
     predicted_pool = []
@@ -424,16 +266,10 @@ def calculate_green_pro_prediction(market_records):
         if len(predicted_pool) == 3:
             break
 
-    while len(predicted_pool) < 3:
-        for fb in [1, 5, 9, 3, 7, 2, 8]:
-            if fb not in predicted_pool:
-                predicted_pool.append(fb)
-            if len(predicted_pool) == 3:
-                break
-
     target_3_numbers = sorted(predicted_pool)
     num_str = f"{target_3_numbers[0]},{target_3_numbers[1]},{target_3_numbers[2]}"
 
+    # সাইজ ডিটারমিনেশন
     sizes_last_10 = [r["size"] for r in sample[:10]]
     big_count = sizes_last_10.count("BIG")
     if big_count >= 7:
@@ -444,6 +280,7 @@ def calculate_green_pro_prediction(market_records):
         big_in_target = sum(1 for n in target_3_numbers if n >= 5)
         pred_size = "BIG" if big_in_target >= 2 else "SMALL"
 
+    # কালার ডিটারমিনেশন
     colors_last_10 = [r["color"] for r in sample[:10]]
     green_count = colors_last_10.count("GREEN")
     red_count = colors_last_10.count("RED")
@@ -453,213 +290,94 @@ def calculate_green_pro_prediction(market_records):
     else:
         pred_color = "RED" if (colors_last_10[0] != "RED" or red_count >= 6) else "GREEN"
 
-    return {"size": pred_size, "num": num_str, "color": pred_color}
+    return {
+        "size": pred_size,
+        "num": num_str,
+        "color": pred_color
+    }
 
-# =========================================================
-# EVALUATION & STATE MANAGEMENT
-# =========================================================
-def evaluate_history_outcomes(m_state, data):
+def evaluate_history_outcomes(m_state: MarketState, data):
     for rec in data[:6]:
         p = rec["period"]
         act_n = rec["number"]
         act_s = rec["size"]
         act_c = rec["color"]
 
-        # TIGER PRO (২ সংখ্যার ১টি মিললেই JAC)
-        if p in m_state.history_tiger and p not in m_state.win_loss_tiger:
-            h = m_state.history_tiger[p]
-            p_nums = [int(x.strip()) for x in h.get("num", "").split(",") if x.strip().isdigit()]
-            if act_n in p_nums:
-                m_state.win_loss_tiger[p] = "JAC"
-            elif (h.get("size") == act_s) or (h.get("color") == act_c):
-                m_state.win_loss_tiger[p] = "WIN"
-            else:
-                m_state.win_loss_tiger[p] = "LOSS"
-
         # RED PRO
         if p in m_state.history_red and p not in m_state.win_loss_red:
-            h = m_state.history_red[p]
-            p_nums = [int(x.strip()) for x in h.get("num", "").split(",") if x.strip().isdigit()]
-            if act_n in p_nums:
+            h_red = m_state.history_red[p]
+            pred_nums = [int(x.strip()) for x in h_red.get("num", "").split(",") if x.strip().isdigit()]
+            if act_n in pred_nums:
                 m_state.win_loss_red[p] = "JAC"
-            elif (h.get("size") == act_s) or (h.get("color") == act_c):
+            elif (h_red.get("size") == act_s) or (h_red.get("color") == act_c):
                 m_state.win_loss_red[p] = "WIN"
             else:
                 m_state.win_loss_red[p] = "LOSS"
 
         # GREEN PRO
         if p in m_state.history_green and p not in m_state.win_loss_green:
-            h = m_state.history_green[p]
-            p_nums = [int(x.strip()) for x in h.get("num", "").split(",") if x.strip().isdigit()]
-            if act_n in p_nums:
+            h_green = m_state.history_green[p]
+            pred_nums_g = [int(x.strip()) for x in h_green.get("num", "").split(",") if x.strip().isdigit()]
+            if act_n in pred_nums_g:
                 m_state.win_loss_green[p] = "JAC"
-            elif (h.get("size") == act_s) or (h.get("color") == act_c):
+            elif (h_green.get("size") == act_s) or (h_green.get("color") == act_c):
                 m_state.win_loss_green[p] = "WIN"
             else:
                 m_state.win_loss_green[p] = "LOSS"
 
-def update_market_state(m_key: str, data: list):
-    if not data:
-        return
-
-    with state.lock:
-        m_state = state.markets[m_key]
-
-        existing_issues = {r["period"] for r in m_state.market_data}
-        new_records = [r for r in data if r["period"] not in existing_issues]
-
-        if new_records:
-            m_state.market_data = (new_records + m_state.market_data)[:500]
-        elif not m_state.market_data:
-            m_state.market_data = data[:500]
-
-        top_record = m_state.market_data[0]
-        top_period = top_record["period"]
-
-        try:
-            next_p = str(int(top_period) + 1).zfill(len(top_period))
-        except Exception:
-            interval = MARKETS_CONFIG[m_key]["interval"]
-            next_p = f"{int(time.time() // interval) + 1}"
-
-        m_state.current_period = next_p
-        evaluate_history_outcomes(m_state, m_state.market_data)
-
-        # প্রেডিকশন রানিং
-        pr_r = calculate_red_pro_prediction(m_state.market_data)
-        m_state.pred_red = {"period": next_p, "size": pr_r["size"], "num": pr_r["num"], "color": pr_r["color"]}
-        m_state.history_red[next_p] = {**m_state.pred_red, "timestamp": datetime.now()}
-
-        pr_g = calculate_green_pro_prediction(m_state.market_data)
-        m_state.pred_green = {"period": next_p, "size": pr_g["size"], "num": pr_g["num"], "color": pr_g["color"]}
-        m_state.history_green[next_p] = {**m_state.pred_green, "timestamp": datetime.now()}
-
-        if m_key == "30S":
-            pr_t = calculate_tiger_pro_prediction(m_state.market_data)
-            m_state.pred_tiger = {"period": next_p, "size": pr_t["size"], "num": pr_t["num"], "color": pr_t["color"]}
-            m_state.history_tiger[next_p] = {**m_state.pred_tiger, "timestamp": datetime.now()}
-
-        m_state.clean_old_records()
-
 # =========================================================
-# BACKGROUND WORKERS
-# =========================================================
-def worker_30s():
-    while True:
-        try:
-            data = fetch_market_data("30S")
-            if data:
-                update_market_state("30S", data)
-        except Exception as e:
-            logger.error(f"30S Loop Error: {e}")
-        time.sleep(2)
-
-def worker_5m():
-    while True:
-        try:
-            data = fetch_market_data("5M")
-            if data:
-                update_market_state("5M", data)
-        except Exception as e:
-            logger.error(f"5M Loop Error: {e}")
-        time.sleep(5)
-
-def live_ui_updater():
-    while True:
-        try:
-            with state.lock:
-                active_list = list(state.active_chats.items())
-
-            for chat_id, info in active_list:
-                try:
-                    markup = create_market_markup(
-                        market_key=info.get("market", "30S"),
-                        page=info.get("page", 1),
-                        mode=info.get("mode", "TIGER" if info.get("market") == "30S" else "GREEN")
-                    )
-                    bot.edit_message_reply_markup(
-                        chat_id=chat_id,
-                        message_id=info["message_id"],
-                        reply_markup=markup
-                    )
-                except telebot.apihelper.ApiTelegramException as e:
-                    if "message is not modified" not in str(e).lower():
-                        pass
-                except Exception:
-                    pass
-        except Exception as e:
-            logger.error(f"UI Updater Error: {e}")
-        time.sleep(1)
-
-# =========================================================
-# UI BUILDERS
+# UI MARKUPS (ZERO EMOJI CLEAN VIP UI)
 # =========================================================
 def get_market_selection_markup():
+    """স্টার্ট স্ক্রিনে মার্কেট বেছে নেওয়ার দুটি বাটন"""
     markup = types.InlineKeyboardMarkup(row_width=1)
-    btn_30s = types.InlineKeyboardButton(to_vip("WINGO 30 SECONDS"), callback_data="select_market_30S")
-    btn_5m = types.InlineKeyboardButton(to_vip("WINGO 5 MINUTES"), callback_data="select_market_5M")
+    btn_30s = types.InlineKeyboardButton(to_vip("WINGO 30 SEC"), callback_data="market_select_30S")
+    btn_5m = types.InlineKeyboardButton(to_vip("WINGO 5 MIN"), callback_data="market_select_5M")
     markup.add(btn_30s, btn_5m)
     return markup
 
 def get_engine_selection_markup(market_key: str):
+    """মার্কেট সিলেক্ট করার পর ইঞ্জিন বেছে নেওয়ার স্ক্রিন"""
     markup = types.InlineKeyboardMarkup(row_width=1)
-    if market_key == "30S":
-        btn_tiger = types.InlineKeyboardButton(to_vip("TIGER PRO WINNER"), callback_data="launch_30S_TIGER")
-        btn_red = types.InlineKeyboardButton(to_vip("RED PRO WINNER"), callback_data="launch_30S_RED")
-        btn_green = types.InlineKeyboardButton(to_vip("GREEN PRO WINNER"), callback_data="launch_30S_GREEN")
-        markup.add(btn_tiger, btn_red, btn_green)
-    else:
-        btn_red = types.InlineKeyboardButton(to_vip("RED PRO WINNER"), callback_data="launch_5M_RED")
-        btn_green = types.InlineKeyboardButton(to_vip("GREEN PRO WINNER"), callback_data="launch_5M_GREEN")
-        markup.add(btn_red, btn_green)
-
-    btn_back = types.InlineKeyboardButton(to_vip("BACK TO MARKETS"), callback_data="menu_markets")
-    markup.add(btn_back)
+    btn_red = types.InlineKeyboardButton(to_vip("RED PRO WINNER"), callback_data=f"launch_{market_key}_RED")
+    btn_green = types.InlineKeyboardButton(to_vip("GREEN PRO WINNER"), callback_data=f"launch_{market_key}_GREEN")
+    btn_back = types.InlineKeyboardButton(to_vip("BACK TO MARKETS"), callback_data="back_to_markets")
+    markup.add(btn_red, btn_green, btn_back)
     return markup
 
 def get_dashboard_header(market_key: str, mode: str) -> str:
-    m_conf = MARKETS_CONFIG[market_key]
-    mode_name = f"{mode} PRO WINNER"
+    market_name = MARKETS[market_key]["name"]
+    mode_name = "RED PRO WINNER" if mode == "RED" else "GREEN PRO WINNER"
     return (
         f"<b>{to_vip('DARK KILLER')} | {to_vip('DRX-TM')}</b>\n"
-        f"<b>{to_vip('MARKET')}: {to_vip(m_conf['short_title'])}</b>\n"
+        f"<b>{to_vip('MARKET')}: {to_vip(market_name)}</b>\n"
         f"<b>{to_vip('ENGINE')}: {to_vip(mode_name)}</b>\n"
         "────────────────────────"
     )
 
-def create_market_markup(market_key: str = "30S", page: int = 1, mode: str = "TIGER"):
+def create_market_markup(market_key: str = "5M", page: int = 1, mode: str = "RED"):
+    """মার্কেট ড্যাশবোর্ড বাটন ও টেবিল জেনারেটর"""
     m_state = state.markets[market_key]
-    interval = MARKETS_CONFIG[market_key]["interval"]
-
     markup = types.InlineKeyboardMarkup(row_width=4)
 
     # ১. পিরিয়ড বাটন
-    period_str = m_state.current_period or "CONNECTING..."
+    period_str = m_state.current_period or "WAITING..."
     btn_period = types.InlineKeyboardButton(f"{to_vip('PERIOD')}: {to_vip(period_str)}", callback_data="none")
     markup.row(btn_period)
 
-    # ২. টাইমার ও প্রোগ্রেস বার
+    # ২. রানিং টাইমার ও প্রোগ্রেস বার
     now_ts = int(time.time())
-    elapsed = now_ts % interval
-    remaining = interval - elapsed
+    elapsed = now_ts % m_state.interval
+    remaining = m_state.interval - elapsed
 
     total_blocks = 20
-    filled_blocks = int((elapsed / interval) * total_blocks)
+    filled_blocks = int((elapsed / m_state.interval) * total_blocks)
     progress_bar = "█" * filled_blocks + "▒" * (total_blocks - filled_blocks)
     timer_text = f"{to_vip(str(remaining).zfill(2))}S [{progress_bar}]"
     markup.row(types.InlineKeyboardButton(timer_text, callback_data="none"))
 
-    # ৩. প্রেডিকশন
-    if mode == "TIGER":
-        pred = m_state.pred_tiger
-        records_outcome = m_state.win_loss_tiger
-    elif mode == "GREEN":
-        pred = m_state.pred_green
-        records_outcome = m_state.win_loss_green
-    else:
-        pred = m_state.pred_red
-        records_outcome = m_state.win_loss_red
-
+    # ৩. প্রেডিকশন বক্স
+    pred = m_state.pred_red if mode == "RED" else m_state.pred_green
     s_val = to_vip(pred['size']) if pred['size'] != "--" else "--"
     n_val = to_vip(pred['num']) if pred['num'] != "--" else "--"
     c_val = to_vip(pred['color']) if pred['color'] != "--" else "--"
@@ -669,11 +387,13 @@ def create_market_markup(market_key: str = "30S", page: int = 1, mode: str = "TI
     btn_color = types.InlineKeyboardButton(f"{c_val}", callback_data="none")
     markup.row(btn_size, btn_num, btn_color)
 
-    # ৪. মার্কেট ডাটা টেবিল (৫ মিনিটের মতো হুবহু একই ৪-কলাম ফরম্যাট)
+    # ৪. টেবিল রেকর্ডস (পেজ অনুযায়ী ১০টি সারি)
     page = max(1, min(TOTAL_PAGES, page))
     start_idx = (page - 1) * 10
     end_idx = start_idx + 10
     records = m_state.market_data[start_idx:end_idx]
+
+    records_outcome = m_state.win_loss_red if mode == "RED" else m_state.win_loss_green
 
     for item in records:
         p_full = item["period"]
@@ -690,7 +410,9 @@ def create_market_markup(market_key: str = "30S", page: int = 1, mode: str = "TI
         b4 = types.InlineKeyboardButton(f"{outcome}", callback_data="none")
         markup.row(b1, b2, b3, b4)
 
-    for _ in range(10 - len(records)):
+    # খালি ঘর পূরণ
+    remaining_rows = 10 - len(records)
+    for _ in range(remaining_rows):
         markup.row(
             types.InlineKeyboardButton("-", callback_data="none"),
             types.InlineKeyboardButton("-", callback_data="none"),
@@ -698,7 +420,7 @@ def create_market_markup(market_key: str = "30S", page: int = 1, mode: str = "TI
             types.InlineKeyboardButton("-", callback_data="none")
         )
 
-    # ৫. পেজিনেশন
+    # ৫. পেজিনেশন বাটন
     prev_page = page - 1 if page > 1 else TOTAL_PAGES
     next_page = page + 1 if page < TOTAL_PAGES else 1
     btn_prev = types.InlineKeyboardButton(f"{to_vip('PREV')}", callback_data=f"page_{prev_page}")
@@ -706,37 +428,122 @@ def create_market_markup(market_key: str = "30S", page: int = 1, mode: str = "TI
     btn_next = types.InlineKeyboardButton(f"{to_vip('NEXT')}", callback_data=f"page_{next_page}")
     markup.row(btn_prev, btn_curr, btn_next)
 
-    # ৬. কন্ট্রোল বাটন (৫ মিনিটের মতো সিঙ্গেল বাটন রো - কোনো ডাবল বাটন নেই)
-    if market_key == "30S":
-        if mode == "TIGER":
-            next_mode = "RED"
-        elif mode == "RED":
-            next_mode = "GREEN"
-        else:
-            next_mode = "TIGER"
-        markup.row(types.InlineKeyboardButton(to_vip(f"SWITCH {next_mode} PRO"), callback_data=f"mode_{next_mode}"))
-    else:
-        target_mode = "GREEN" if mode == "RED" else "RED"
-        markup.row(types.InlineKeyboardButton(to_vip(f"SWITCH {target_mode} PRO"), callback_data=f"mode_{target_mode}"))
+    # ৬. ইঞ্জিন সুইচ ও মার্কেট সুইচ বাটন
+    switch_engine_target = "GREEN" if mode == "RED" else "RED"
+    switch_engine_label = f"SWITCH TO {switch_engine_target} PRO"
+    btn_switch_engine = types.InlineKeyboardButton(to_vip(switch_engine_label), callback_data=f"mode_{switch_engine_target}")
 
-    btn_change_mkt = types.InlineKeyboardButton(to_vip("CHANGE MARKET"), callback_data="menu_markets")
+    switch_market_target = "5M" if market_key == "30S" else "30S"
+    switch_market_label = f"SWITCH TO {MARKETS[switch_market_target]['name']}"
+    btn_switch_market = types.InlineKeyboardButton(to_vip(switch_market_label), callback_data=f"mchange_{switch_market_target}")
+
     btn_refresh = types.InlineKeyboardButton(to_vip("REFRESH"), callback_data="refresh")
-    markup.row(btn_change_mkt, btn_refresh)
+
+    markup.row(btn_switch_engine)
+    markup.row(btn_switch_market)
+    markup.row(btn_refresh)
 
     return markup
 
 # =========================================================
-# BOT HANDLERS
+# BACKGROUND WORKER LOOPS
+# =========================================================
+def market_processing_worker(market_key: str):
+    """নির্দিষ্ট মার্কেটের ডেটা ফেচিং ও প্রেডিকশন হ্যান্ডলার থ্রেড"""
+    m_state = state.markets[market_key]
+    sleep_time = 1.5 if market_key == "30S" else 3.0
+
+    while True:
+        try:
+            data = fetch_api_market(m_state.api_url)
+            if data:
+                with state.lock:
+                    m_state.market_data = data
+                    top_record = data[0]
+                    top_period = top_record["period"]
+
+                    if top_period != m_state.last_fetched_period:
+                        m_state.last_fetched_period = top_period
+
+                        try:
+                            next_period_num = int(top_period) + 1
+                            next_period_str = str(next_period_num).zfill(len(top_period))
+                        except Exception:
+                            next_period_str = f"{int(time.time() // m_state.interval) + 1}"
+
+                        m_state.current_period = next_period_str
+
+                        # ফলাফল মূল্যায়ন
+                        evaluate_history_outcomes(m_state, data)
+
+                        # RED PRO প্রেডিকশন
+                        pred_r = calculate_red_pro_prediction(m_state.market_data)
+                        m_state.pred_red = {
+                            "period": next_period_str,
+                            "size": pred_r["size"],
+                            "num": pred_r["num"],
+                            "color": pred_r["color"]
+                        }
+                        m_state.history_red[next_period_str] = {**m_state.pred_red, "timestamp": datetime.now()}
+
+                        # GREEN PRO প্রেডিকশন
+                        pred_g = calculate_green_pro_prediction(m_state.market_data)
+                        m_state.pred_green = {
+                            "period": next_period_str,
+                            "size": pred_g["size"],
+                            "num": pred_g["num"],
+                            "color": pred_g["color"]
+                        }
+                        m_state.history_green[next_period_str] = {**m_state.pred_green, "timestamp": datetime.now()}
+
+            m_state.clean_old_records()
+        except Exception as e:
+            logger.error(f"Error in {market_key} worker: {e}")
+
+        time.sleep(sleep_time)
+
+def real_time_ui_broadcaster():
+    """চ্যাট উইন্ডোতে রিয়েল-টাইম টাইমার ও টেবিল আপডেট ডিসপ্যাচার"""
+    while True:
+        try:
+            with state.lock:
+                chats_snapshot = list(state.active_chats.items())
+
+            for chat_id, info in chats_snapshot:
+                try:
+                    m_key = info.get("market", "5M")
+                    p_num = info.get("page", 1)
+                    e_mode = info.get("mode", "RED")
+
+                    markup = create_market_markup(market_key=m_key, page=p_num, mode=e_mode)
+                    bot.edit_message_reply_markup(
+                        chat_id=chat_id,
+                        message_id=info["message_id"],
+                        reply_markup=markup
+                    )
+                except telebot.apihelper.ApiTelegramException as e:
+                    if "message is not modified" not in str(e).lower():
+                        pass
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"Broadcaster error: {e}")
+
+        time.sleep(2)
+
+# =========================================================
+# BOT COMMAND & CALLBACK HANDLERS
 # =========================================================
 @bot.message_handler(commands=["start"])
-def send_welcome(message):
+def send_start_menu(message):
     chat_id = message.chat.id
     welcome_text = (
         f"<b>{to_vip('DARK KILLER')} | {to_vip('DRX-TM')}</b>\n"
-        f"<i>{to_vip('SELECT WIN-GO MARKET')}</i>\n"
+        f"<i>{to_vip('SELECT WIN GO MARKET')}</i>\n"
         "────────────────────────"
     )
-    bot.send_message(chat_id, welcome_text, reply_markup=get_market_selection_markup())
+    markup = get_market_selection_markup()
+    bot.send_message(chat_id, welcome_text, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
@@ -747,44 +554,52 @@ def handle_callbacks(call):
         bot.answer_callback_query(call.id)
         return
 
-    if data == "menu_markets":
-        menu_text = (
+    # ১. ব্যাক টু মার্কেট সিলেকশন
+    if data == "back_to_markets":
+        welcome_text = (
             f"<b>{to_vip('DARK KILLER')} | {to_vip('DRX-TM')}</b>\n"
-            f"<i>{to_vip('SELECT WIN-GO MARKET')}</i>\n"
+            f"<i>{to_vip('SELECT WIN GO MARKET')}</i>\n"
             "────────────────────────"
         )
         try:
-            bot.edit_message_text(menu_text, chat_id=chat_id, message_id=call.message.message_id, reply_markup=get_market_selection_markup())
+            bot.edit_message_text(
+                welcome_text,
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                reply_markup=get_market_selection_markup()
+            )
         except Exception:
             pass
         bot.answer_callback_query(call.id)
         return
 
-    if data.startswith("select_market_"):
-        chosen_market = data.split("_")[2]
-        m_name = MARKETS_CONFIG[chosen_market]["title"]
-        engine_text = (
+    # ২. মার্কেট বাছাই (30S বা 5M) -> এরপর ইঞ্জিন বাছাই অপশন আসবে
+    if data.startswith("market_select_"):
+        selected_market = data.split("_")[2]
+        market_name = MARKETS[selected_market]["name"]
+        text = (
             f"<b>{to_vip('DARK KILLER')} | {to_vip('DRX-TM')}</b>\n"
-            f"<b>{to_vip('MARKET')}: {to_vip(m_name)}</b>\n"
-            f"<i>{to_vip('SELECT PREDICTION ENGINE')}</i>\n"
+            f"<b>{to_vip('MARKET')}: {to_vip(market_name)}</b>\n"
+            f"<i>{to_vip('CHOOSE PREDICTION ENGINE')}</i>\n"
             "────────────────────────"
         )
         try:
-            bot.edit_message_text(engine_text, chat_id=chat_id, message_id=call.message.message_id, reply_markup=get_engine_selection_markup(chosen_market))
+            bot.edit_message_text(
+                text,
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                reply_markup=get_engine_selection_markup(selected_market)
+            )
         except Exception:
             pass
-        bot.answer_callback_query(call.id, text=to_vip(f"{chosen_market} SELECTED"))
+        bot.answer_callback_query(call.id, text=to_vip(f"{market_name} SELECTED"))
         return
 
+    # ৩. ড্যাশবোর্ড লঞ্চ (নির্দিষ্ট মার্কেট ও ইঞ্জিনের জন্য)
     if data.startswith("launch_"):
         parts = data.split("_")
         chosen_market = parts[1]
         chosen_mode = parts[2]
-
-        if not state.markets[chosen_market].market_data:
-            fresh_data = fetch_market_data(chosen_market)
-            if fresh_data:
-                update_market_state(chosen_market, fresh_data)
 
         header_text = get_dashboard_header(chosen_market, chosen_mode)
         markup = create_market_markup(market_key=chosen_market, page=1, mode=chosen_mode)
@@ -803,38 +618,79 @@ def handle_callbacks(call):
             state.active_chats[chat_id] = {
                 "message_id": call.message.message_id,
                 "market": chosen_market,
-                "mode": chosen_mode,
-                "page": 1
+                "page": 1,
+                "mode": chosen_mode
             }
-        bot.answer_callback_query(call.id, text=to_vip(f"{chosen_market} {chosen_mode} ACTIVE"))
+        bot.answer_callback_query(call.id, text=to_vip(f"{chosen_mode} ACTIVATED"))
         return
 
+    # ৪. ইঞ্জিন সুইচ (RED <-> GREEN)
     if data.startswith("mode_"):
         new_mode = data.split("_")[1]
         with state.lock:
-            info = state.active_chats.get(chat_id, {"market": "30S", "page": 1})
-            curr_market = info.get("market", "30S")
+            info = state.active_chats.get(chat_id, {"market": "5M", "page": 1, "mode": "RED"})
+            curr_market = info.get("market", "5M")
             curr_page = info.get("page", 1)
-            state.active_chats[chat_id]["mode"] = new_mode
+            state.active_chats[chat_id] = {
+                "message_id": call.message.message_id,
+                "market": curr_market,
+                "page": curr_page,
+                "mode": new_mode
+            }
 
         header_text = get_dashboard_header(curr_market, new_mode)
         markup = create_market_markup(market_key=curr_market, page=curr_page, mode=new_mode)
 
         try:
-            bot.edit_message_text(header_text, chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup)
+            bot.edit_message_text(
+                header_text,
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                reply_markup=markup
+            )
         except Exception:
             pass
 
-        bot.answer_callback_query(call.id, text=to_vip(f"ENGINE: {new_mode} PRO"))
+        bot.answer_callback_query(call.id, text=to_vip(f"{new_mode} PRO ACTIVATED"))
         return
 
+    # ৫. মার্কেট সুইচ (30S <-> 5M)
+    if data.startswith("mchange_"):
+        new_market = data.split("_")[1]
+        with state.lock:
+            info = state.active_chats.get(chat_id, {"market": "5M", "page": 1, "mode": "RED"})
+            curr_mode = info.get("mode", "RED")
+            state.active_chats[chat_id] = {
+                "message_id": call.message.message_id,
+                "market": new_market,
+                "page": 1,
+                "mode": curr_mode
+            }
+
+        header_text = get_dashboard_header(new_market, curr_mode)
+        markup = create_market_markup(market_key=new_market, page=1, mode=curr_mode)
+
+        try:
+            bot.edit_message_text(
+                header_text,
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                reply_markup=markup
+            )
+        except Exception:
+            pass
+
+        bot.answer_callback_query(call.id, text=to_vip(f"{MARKETS[new_market]['name']} LOADED"))
+        return
+
+    # ৬. পেজিনেশন (১-৫০ পেজ)
     if data.startswith("page_"):
         try:
             page_num = int(data.split("_")[1])
             with state.lock:
-                info = state.active_chats.get(chat_id, {"market": "30S", "mode": "TIGER"})
-                curr_market = info.get("market", "30S")
-                curr_mode = info.get("mode", "TIGER")
+                info = state.active_chats.get(chat_id, {"market": "5M", "mode": "RED"})
+                curr_market = info.get("market", "5M")
+                curr_mode = info.get("mode", "RED")
                 state.active_chats[chat_id]["page"] = page_num
 
             markup = create_market_markup(market_key=curr_market, page=page_num, mode=curr_mode)
@@ -847,53 +703,44 @@ def handle_callbacks(call):
         except Exception:
             bot.answer_callback_query(call.id)
 
+    # ৭. রিফ্রেশ
     elif data == "refresh":
         try:
-            info = state.active_chats.get(chat_id, {"market": "30S", "page": 1, "mode": "TIGER"})
-            m_key = info.get("market", "30S")
-            fresh_data = fetch_market_data(m_key)
-            if fresh_data:
-                update_market_state(m_key, fresh_data)
-
-            markup = create_market_markup(
-                market_key=m_key,
-                page=info.get("page", 1),
-                mode=info.get("mode", "TIGER")
+            info = state.active_chats.get(chat_id, {"market": "5M", "page": 1, "mode": "RED"})
+            markup = create_market_markup(market_key=info.get("market", "5M"), page=info.get("page", 1), mode=info.get("mode", "RED"))
+            bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                reply_markup=markup
             )
-            bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup)
             bot.answer_callback_query(call.id, text=to_vip("REFRESHED"))
         except Exception:
             bot.answer_callback_query(call.id)
 
 # =========================================================
-# RUNTIME STARTUP
+# RUN BOT & MULTI-THREAD SYSTEM
 # =========================================================
 if __name__ == "__main__":
-    print("=" * 60)
-    print(f"{to_vip('DARK KILLER')} | {to_vip('DRX-TM')} [ONLINE]")
-    print(f"30S Market URL: {MARKETS_CONFIG['30S']['primary_url']}")
-    print(f"5M Market URL:  {MARKETS_CONFIG['5M']['primary_url']}")
-    print("=" * 60)
+    print("=" * 65)
+    print(f"{to_vip('DARK KILLER')} | {to_vip('DRX-TM')} [SYSTEM ONLINE]")
+    print("Markets: WinGo 30-Second & WinGo 5-Minute Dual-Engine System")
+    print("=" * 65)
 
-    # প্রারম্ভিক ফেচ
-    init_30s = fetch_market_data("30S")
-    if init_30s:
-        update_market_state("30S", init_30s)
-        print(f"[SUCCESS] 30S Market Connected: {len(init_30s)} live records loaded.")
+    # ৩০ সেকেন্ডের মার্কেট থ্রেড
+    t_30s = threading.Thread(target=market_processing_worker, args=("30S",), daemon=True)
+    t_30s.start()
 
-    init_5m = fetch_market_data("5M")
-    if init_5m:
-        update_market_state("5M", init_5m)
-        print(f"[SUCCESS] 5M Market Connected: {len(init_5m)} live records loaded.")
+    # ৫ মিনিটের মার্কেট থ্রেড
+    t_5m = threading.Thread(target=market_processing_worker, args=("5M",), daemon=True)
+    t_5m.start()
 
-    # ওয়ার্কার চালু
-    threading.Thread(target=worker_30s, daemon=True).start()
-    threading.Thread(target=worker_5m, daemon=True).start()
-    threading.Thread(target=live_ui_updater, daemon=True).start()
+    # ইউআই ব্রডকাস্টার থ্রেড
+    t_ui = threading.Thread(target=real_time_ui_broadcaster, daemon=True)
+    t_ui.start()
 
     while True:
         try:
             bot.infinity_polling(timeout=20, long_polling_timeout=10)
         except Exception as e:
-            logger.error(f"Polling Crash: {e}. Restarting in 5s...")
+            logger.error(f"Crash: {e}. Restarting polling in 5s...")
             time.sleep(5)
