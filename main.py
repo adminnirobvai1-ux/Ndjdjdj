@@ -27,7 +27,7 @@ from telebot import types
 # =========================================================
 # CONFIGURATION
 # =========================================================
-BOT_TOKEN = "8864547814:AAEBQxt864_3n06RLllIqCsN3AuyGmJhSzg"
+BOT_TOKEN = "8864547814:AAFIJt0hTIObBEy16qxGe3y5uPFFy5af3I0"
 
 MARKETS = {
     "30S": {
