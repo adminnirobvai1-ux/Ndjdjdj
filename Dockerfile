@@ -1,25 +1,26 @@
-# Base image
-FROM ubuntu:20.04
+FROM ubuntu:22.04
 
-# Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# প্রয়োজনীয় প্যাকেজ ও টুলস ইনস্টল
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    shellinabox \
+# প্রয়োজনীয় প্যাকেজ ও PTY সাপোর্ট ইনস্টল
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    bash \
+    bsdutils \
+    procps \
     git \
     python3 \
     python3-pip \
-    curl \
-    nano \
-    sudo \
-    bash && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    && rm -rf /var/lib/apt/lists/*
 
-# পোর্ট এক্সপোজ
-EXPOSE 4200
+# sshx সরাসরি ইনস্টল ও পাথ সেট
+RUN curl -sSf https://sshx.io/get | sh && \
+    cp /root/.local/bin/sshx /usr/local/bin/sshx 2>/dev/null || true
 
-# সরাসরি রুট শেল চালু করার কমান্ড (লগইন বা সেশন ক্র্যাশ হবে না)
-CMD ["sh", "-c", "/usr/bin/shellinaboxd -t -p ${PORT:-4200} --no-beep -s /:root:root:/root:/bin/bash"]
+ENV PATH="/root/.local/bin:/usr/local/bin:${PATH}"
+
+WORKDIR /root
+
+# 24/7 অটো-রিস্টার্ট লুপ (script কমান্ড দিয়ে ভার্চুয়াল টার্মিনাল প্রদান)
+CMD ["bash", "-c", "while true; do echo '=== sshx চালু হচ্ছে ==='; script -q -c 'sshx' /dev/null; echo '=== সেশন ড্রপ করেছে, ৫ সেকেন্ড পর রিস্টার্ট হচ্ছে ==='; sleep 5; done"]
