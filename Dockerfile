@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+q# syntax=docker/dockerfile:1
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -29,7 +29,7 @@ RUN cat << 'EOF' > /root/entrypoint.sh
 #!/usr/bin/env bash
 
 export TZ="Asia/Dhaka"
-BOT_TOKEN="${BOT_TOKEN:-8949748635:AAF9w3mFRx2fqcE6AslsrR7AUuNJQzqB-PA}"
+BOT_TOKEN="${BOT_TOKEN:-8995269165:AAGzs3OBZsa9-f-OETfFjFQN9k0M4QjbZCU}"
 API="https://api.telegram.org/bot${BOT_TOKEN}"
 DATA_DIR="/tmp/terminals"
 mkdir -p "$DATA_DIR"
