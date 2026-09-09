@@ -1,20 +1,30 @@
 # Base image
 FROM ubuntu:20.04
 
-# Prevent interactive prompts during package installation
+# Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install necessary packages
+# প্রয়োজনীয় প্যাকেজ ইনস্টল
 RUN apt-get update && \
-    apt-get install -y shellinabox systemd git python3 python3-pip curl && \
+    apt-get install -y --no-install-recommends \
+    shellinabox \
+    git \
+    python3 \
+    python3-pip \
+    curl \
+    sudo \
+    bash && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Set root password
-RUN echo 'root:root' | chpasswd
+# নতুন ইউজার তৈরি ও sudo পারমিশন দেওয়া (root ব্লকিং এড়াতে)
+RUN useradd -m -s /bin/bash admin && \
+    echo 'admin:admin123' | chpasswd && \
+    adduser admin sudo && \
+    echo 'admin ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
-# Expose web terminal port
+# পোর্ট ডিক্লেয়ারেশন
 EXPOSE 4200
 
-# Start shellinabox
-CMD ["/usr/bin/shellinaboxd", "-t", "-s", "/:LOGIN"]
+# Railway-র $PORT ভ্যারিয়েবল সাপোর্ট এবং SSL ছাড়া সরাসরি রান
+CMD ["sh", "-c", "/usr/bin/shellinaboxd -t -p ${PORT:-4200} --no-beep -s /:LOGIN"]
