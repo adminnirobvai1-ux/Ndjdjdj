@@ -230,7 +230,7 @@ def handle_start(message):
             except Exception:
                 pass
 
-    # মূল ওয়েলকাম কার্ড (চ্যানেল লিংক ইনলাইন বাটনসহ)
+    # মূল ওয়েলকাম কার্ড (চ্যানেল লিংক ও টিকমার্ক কনফার্ম বাটনসহ)
     welcome_msg = (      
         f"✦ <b>{to_p_font('ASSALAMU ALAIKUM')}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -240,14 +240,26 @@ def handle_start(message):
         f"𓊕 <b>{to_p_font('SYSTEM STATUS')}  :</b> {to_p_font('ACTIVE')}\n"
         f"⛁ <b>{to_p_font('CORE ENGINE')}    :</b> {to_p_font('ONLINE V2')}\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"⤋ <i>আমাদের অফিসিয়াল কমিউনিটি চ্যানেলে যুক্ত হতে নিচের বাটনে ক্লিক করুন:</i>"
+        f"⤋ <i>চ্যানেলে জয়েন করে নিচের টিকমার্ক বাটনে ক্লিক করুন:</i>"
     )
 
-    markup = types.InlineKeyboardMarkup()
+    markup = types.InlineKeyboardMarkup(row_width=1)
     btn_chan = types.InlineKeyboardButton(f"𓆩♛𓆪 {to_p_font('JOIN OFFICIAL CHANNEL')}", url=CHANNEL_URL)
-    markup.add(btn_chan)
+    btn_done = types.InlineKeyboardButton(f"✓ {to_p_font('CONTINUE')}", callback_data="btn_joined_continue")
+    markup.add(btn_chan, btn_done)
 
     bot.send_message(message.chat.id, welcome_msg, parse_mode="HTML", reply_markup=markup)
+
+# টিকমার্ক বাটনে চাপ দিলে কিবোর্ড মেনু নিয়ে আসার হ্যান্ডলার
+@bot.callback_query_handler(func=lambda call: call.data == "btn_joined_continue")
+def handle_joined_continue(call):
+    bot.answer_callback_query(call.id, "ধন্যবাদ!")
+    bot.send_message(
+        call.message.chat.id,
+        f"❖ <b>{to_p_font('WELCOME')}</b>\nনিচের মেনুবার থেকে অপশন নির্বাচন করুন:",
+        parse_mode="HTML",
+        reply_markup=main_reply_keyboard()
+    )
 
 @bot.message_handler(func=lambda msg: msg.text and to_p_font('PROFILE') in msg.text)
 def handle_profile(message):
