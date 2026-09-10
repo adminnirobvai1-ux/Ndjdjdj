@@ -30,7 +30,7 @@ terminal_counter = 1
 request_counter = 100
 lock = threading.Lock()
 
-# প্রিমিয়াম ফন্ট কনভার্টার
+# ম্যাথমেটিক্যাল বোল্ড রূপান্তরকারী
 BOLD_MAP = {
     'A': '𝐀', 'B': '𝐁', 'C': '𝐂', 'D': '𝐃', 'E': '𝐄', 'F': '𝐅', 'G': '𝐆', 'H': '𝐇', 'I': '𝐈',
     'J': '𝐉', 'K': '𝐊', 'L': '𝐋', 'M': '𝐌', 'N': '𝐍', 'O': '𝐎', 'P': '𝐏', 'Q': '𝐐', 'R': '𝐑',
@@ -41,7 +41,7 @@ BOLD_MAP = {
 def to_p_font(text):
     return "".join(BOLD_MAP.get(c, c) for c in str(text))
 
-# প্যাকেজ কনফিগারেশন
+# প্যাকেজ তালিকা (মেয়াদ ও প্রাইস)
 PACKAGES = {
     "pkg_7d": {"name": f"✦ {to_p_font('7 DAYS')}", "days": 7, "price": 75},
     "pkg_15d": {"name": f"✦ {to_p_font('15 DAYS')}", "days": 15, "price": 135},
@@ -143,7 +143,7 @@ def schedule_auto_kill(term_id, delay_seconds, user_id, expire_label):
             try:
                 msg = (
                     f"⩇⩇:⩇⩇ <b>{to_p_font('DURATION EXPIRED')}</b>\n\n"
-                    f"✦ Your Terminal #{to_p_font(term_id)} has expired ({to_p_font(expire_label)}) and was shut down."
+                    f"✦ Your Terminal #{to_p_font(term_id)} has reached its limit ({to_p_font(expire_label)}) and was shut down."
                 )
                 bot.send_message(user_id, msg, parse_mode="HTML")
             except Exception:
@@ -191,17 +191,14 @@ def create_and_send_vps(target_user_id, days):
     bot.send_message(target_user_id, msg, parse_mode="HTML", reply_markup=markup)
     return True
 
-# একক মেসেজের জন্য প্রিমিয়াম ইনলাইন ড্যাশবোর্ড কিবোর্ড
-def start_inline_dashboard():
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    btn_chan = types.InlineKeyboardButton(f"𓆩♛𓆪 {to_p_font('JOIN OFFICIAL CHANNEL')}", url=CHANNEL_URL)
-    b1 = types.InlineKeyboardButton(f"𔒝 {to_p_font('PROFILE')}", callback_data="dash_profile")
-    b2 = types.InlineKeyboardButton(f"⛃ {to_p_font('BALANCE')}", callback_data="dash_balance")
-    b3 = types.InlineKeyboardButton(f"♞ {to_p_font('REFERRAL')}", callback_data="dash_referral")
-    b4 = types.InlineKeyboardButton(f"✦ {to_p_font('PLANS & PRICING')}", callback_data="dash_plans")
-    markup.add(btn_chan)
-    markup.add(b1, b2)
-    markup.add(b3, b4)
+# নিচের কিবোর্ড মেনুবার (৪টি বাটন)
+def main_reply_keyboard():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    b1 = types.KeyboardButton(f"𔒝 {to_p_font('PROFILE')}")
+    b2 = types.KeyboardButton(f"⛃ {to_p_font('BALANCE')}")
+    b3 = types.KeyboardButton(f"♞ {to_p_font('REFERRAL')}")
+    b4 = types.KeyboardButton(f"✦ {to_p_font('PLANS & PRICING')}")
+    markup.add(b1, b2, b3, b4)
     return markup
 
 @bot.message_handler(commands=['start'])
@@ -209,6 +206,7 @@ def handle_start(message):
     uid = message.from_user.id
     u_data = get_user(uid)
 
+    # রেফারেল ট্র্যাকিং
     parts = message.text.split()
     if len(parts) > 1 and parts[1].isdigit():
         ref_id = int(parts[1])
@@ -227,22 +225,30 @@ def handle_start(message):
             except Exception:
                 pass
 
+    # সম্পূর্ণ একটি মাত্র মেসেজে ওনার ইউজারনেম, চ্যানেল লিংক এবং মেনুবার কিবোর্ড
     welcome_msg = (
         "﷽\n\n"
         f"✦ <b>{to_p_font('ASSALAMU ALAIKUM')}</b>\n\n"
         "আসসালামু আলাইকুম, আশা করি আপনারা সবাই ভালো আছেন।\n"
         "আমাদের বটটি ব্যবহার করার জন্য আপনাকে অনেক ধন্যবাদ।\n\n"
         f"⛃ <b>{to_p_font('OWNER')}:</b> {ADMIN_USERNAME}\n"
-        f"𓊕 <b>{to_p_font('STATUS')}:</b> {to_p_font('ONLINE')}"
+        f"𓊕 <b>{to_p_font('STATUS')}:</b> {to_p_font('ONLINE')}\n\n"
+        f"➠ <b>{to_p_font('COMMUNITY CHANNEL')}:</b>\n"
+        f"𓆩♛𓆪 <a href=\"{CHANNEL_URL}\"><b>[{to_p_font('CLICK HERE TO JOIN OUR CHANNEL')}]</b></a>\n\n"
+        "<i>নিচের মেনুবার থেকে আপনার কাঙ্ক্ষিত অপশনটি বেছে নিন:</i>"
     )
 
-    # শুধুমাত্র একটি একক মেসেজ পাঠানো হচ্ছে চ্যানেলের বাটন ও মেনু সহ
-    bot.send_message(message.chat.id, welcome_msg, parse_mode="HTML", reply_markup=start_inline_dashboard())
+    bot.send_message(
+        message.chat.id, 
+        welcome_msg, 
+        parse_mode="HTML", 
+        reply_markup=main_reply_keyboard(),
+        disable_web_page_preview=True
+    )
 
-# ইনলাইন ড্যাশবোর্ড বাটন হ্যান্ডলারসমূহ
-@bot.callback_query_handler(func=lambda call: call.data == "dash_profile")
-def cb_profile(call):
-    uid = call.from_user.id
+@bot.message_handler(func=lambda msg: msg.text and to_p_font('PROFILE') in msg.text)
+def handle_profile(message):
+    uid = message.from_user.id
     u_data = get_user(uid)
     active = u_data.get("active_vps")
     status = f"{to_p_font('RUNNING')} (#{to_p_font(active)})" if active else to_p_font("NONE")
@@ -254,12 +260,11 @@ def cb_profile(call):
         f"♞ <b>{to_p_font('TOTAL REFERRALS')}:</b> {to_p_font(u_data['referrals'])}\n"
         f"✦ <b>{to_p_font('ACTIVE PLAN')}:</b> {status}"
     )
-    bot.send_message(call.message.chat.id, txt, parse_mode="HTML")
-    bot.answer_callback_query(call.id)
+    bot.reply_to(message, txt, parse_mode="HTML")
 
-@bot.callback_query_handler(func=lambda call: call.data == "dash_balance")
-def cb_balance(call):
-    uid = call.from_user.id
+@bot.message_handler(func=lambda msg: msg.text and to_p_font('BALANCE') in msg.text)
+def handle_balance(message):
+    uid = message.from_user.id
     u_data = get_user(uid)
     txt = (
         f"⛃ <b>{to_p_font('ACCOUNT BALANCE')}</b>\n\n"
@@ -267,12 +272,11 @@ def cb_balance(call):
         f"♞ <b>{to_p_font('INVITED USERS')}:</b> {to_p_font(u_data['referrals'])}\n\n"
         f"❂ Invite {to_p_font(20)} users to get a {to_p_font('7 DAYS')} access free."
     )
-    bot.send_message(call.message.chat.id, txt, parse_mode="HTML")
-    bot.answer_callback_query(call.id)
+    bot.reply_to(message, txt, parse_mode="HTML")
 
-@bot.callback_query_handler(func=lambda call: call.data == "dash_referral")
-def cb_referral(call):
-    uid = call.from_user.id
+@bot.message_handler(func=lambda msg: msg.text and to_p_font('REFERRAL') in msg.text)
+def handle_referral(message):
+    uid = message.from_user.id
     u_data = get_user(uid)
     bot_info = bot.get_me()
     ref_link = f"https://t.me/{bot_info.username}?start={uid}"
@@ -284,19 +288,20 @@ def cb_referral(call):
         f"𔒝 <b>{to_p_font('PROGRESS')}:</b> {to_p_font(u_data['referrals'])}/{to_p_font(20)}\n\n"
         f"২০টি রেফার সম্পন্ন হলে নিচের ক্লেইম বাটন দিয়ে ৭ দিনের অ্যাক্সেস নিন।"
     )
+
     markup = types.InlineKeyboardMarkup()
     claim_btn = types.InlineKeyboardButton(f"⍟ {to_p_font('CLAIM 7 DAYS FREE')}", callback_data="claim_referral")
     markup.add(claim_btn)
 
-    bot.send_message(call.message.chat.id, txt, parse_mode="HTML", reply_markup=markup)
-    bot.answer_callback_query(call.id)
+    bot.reply_to(message, txt, parse_mode="HTML", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: call.data == "dash_plans")
-def cb_plans(call):
+@bot.message_handler(func=lambda msg: msg.text and to_p_font('PLANS & PRICING') in msg.text)
+def handle_plans(message):
     txt = (
         f"✦ <b>{to_p_font('AVAILABLE PLANS')}</b>\n\n"
         f"নিচের তালিকা থেকে আপনার পছন্দের প্যাকেজ বেছে নিন:"
     )
+
     markup = types.InlineKeyboardMarkup(row_width=2)
     buttons = []
     for pkg_id, info in PACKAGES.items():
@@ -307,8 +312,7 @@ def cb_plans(call):
     markup.add(*buttons)
     markup.add(btn_custom)
 
-    bot.send_message(call.message.chat.id, txt, parse_mode="HTML", reply_markup=markup)
-    bot.answer_callback_query(call.id)
+    bot.reply_to(message, txt, parse_mode="HTML", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("selpkg_"))
 def handle_package_selection(call):
@@ -379,7 +383,7 @@ def handle_payment_method(call):
     bot.send_message(call.message.chat.id, txt, parse_mode="HTML")
     bot.answer_callback_query(call.id)
 
-# ইউজার থেকে কাস্টম দিন বা পেমেন্ট প্রুফ রিসিভ করা
+# ইউজার থেকে কাস্টম দিন অথবা পেমেন্ট প্রুফ রিসিভ করা
 @bot.message_handler(content_types=['text', 'photo'])
 def handle_user_input(message):
     uid = message.from_user.id
@@ -416,7 +420,7 @@ def handle_user_input(message):
         method = u_data.get("temp_method", "None").upper()
         uname = f"@{message.from_user.username}" if message.from_user.username else "No Username"
 
-        proof_text = message.caption if message.caption else (message.text if message.text else "Proof Screenshot Attached")
+        proof_text = message.caption if message.caption else (message.text if message.text else "Proof Attached")
         photo_id = message.photo[-1].file_id if message.photo else None
 
         with lock:
@@ -428,7 +432,7 @@ def handle_user_input(message):
                 "method": method
             }
 
-        # ওনারের নিকট বাটনসহ নোটিফিকেশন পাঠানো
+        # ওনারের নিকট Approve ও Reject বাটনসহ বার্তা পাঠানো
         admin_markup = types.InlineKeyboardMarkup(row_width=2)
         btn_yes = types.InlineKeyboardButton(f"✓ {to_p_font('APPROVE')}", callback_data=f"adm_yes_{req_id}")
         btn_no = types.InlineKeyboardButton(f"✕ {to_p_font('REJECT')}", callback_data=f"adm_no_{req_id}")
@@ -441,7 +445,7 @@ def handle_user_input(message):
             f"✦ <b>{to_p_font('PACKAGE')}:</b> {pkg.get('name')}\n"
             f"⛃ <b>{to_p_font('PRICE')}:</b> {to_p_font(pkg.get('price'))} BDT\n"
             f"⛁ <b>{to_p_font('METHOD')}:</b> {to_p_font(method)}\n"
-            f"✎ <b>{to_p_font('DETAILS / CODE')}:</b>\n<code>{proof_text}</code>"
+            f"✎ <b>{to_p_font('DETAILS / TRX')}:</b>\n<code>{proof_text}</code>"
         )
 
         try:
@@ -459,7 +463,7 @@ def handle_user_input(message):
         confirm_msg = (
             f"✦ <b>{to_p_font('SUBMITTED SUCCESSFULLY')}</b>\n\n"
             f"আপনার মেসেজটি সাবমিট করা হয়েছে। দয়া করে অপেক্ষা করুন।\n"
-            f"ওনার তথ্য যাচাই করে অনুমোদন করবেন।"
+            f"ওনার তথ্য যাচাই করে টার্মিনাল অনুমোদন করবেন।"
         )
         bot.reply_to(message, confirm_msg, parse_mode="HTML")
 
@@ -489,10 +493,10 @@ def handle_admin_decision(call):
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
         bot.send_message(ADMIN_ID, f"✓ <b>{to_p_font('ORDER #' + str(req_id) + ' APPROVED')}</b>", parse_mode="HTML")
         
-        bot.send_message(target_uid, f"✦ <b>{to_p_font('ORDER APPROVED')}</b>\nআপনার পেমেন্ট সফলভাবে অনুমোদিত হয়েছে। টার্মিনাল তৈরি করা হচ্ছে...", parse_mode="HTML")
+        bot.send_message(target_uid, f"✦ <b>{to_p_font('ORDER APPROVED')}</b>\nআপনার পেমেন্ট সফলভাবে অনুমোদিত হয়েছে। টার্মিনাল চালু হচ্ছে...", parse_mode="HTML")
         success = create_and_send_vps(target_uid, days)
         if not success:
-            bot.send_message(ADMIN_ID, f"⚝ ইউজার <code>{target_uid}</code> এর টার্মিনাল ডেপ্লয় করতে ব্যর্থ হয়েছে।")
+            bot.send_message(ADMIN_ID, f"⚝ ইউজার <code>{target_uid}</code> এর টার্মিনাল চালু করতে ব্যর্থ হয়েছে।")
 
     elif action == "no":
         bot.answer_callback_query(call.id, "অনুরোধটি বাতিল করা হয়েছে।")
@@ -520,7 +524,7 @@ def handle_claim_referral(call):
     else:
         bot.answer_callback_query(call.id, f"পর্যাপ্ত রেফার নেই! সম্পন্ন: {u_data['referrals']}/20", show_alert=True)
 
-# ওনার টার্মিনাল কন্ট্রোল কমান্ডসমূহ
+# ওনার টার্মিনাল কন্ট্রোল
 @bot.message_handler(commands=['kill'])
 def handle_kill(message):
     if message.from_user.id != ADMIN_ID:
