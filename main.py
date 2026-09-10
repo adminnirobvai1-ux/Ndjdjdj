@@ -41,13 +41,13 @@ BOLD_MAP = {
 def to_p_font(text):
     return "".join(BOLD_MAP.get(c, c) for c in str(text))
 
-# শর্টকাট প্যাকেজ তালিকা (7D - 75TK ফরম্যাট)
+# প্যাকেজ তালিকা (শর্টকাট মেমোরি ও প্রাইস)
 PACKAGES = {
-    "pkg_7d": {"name": f"{to_p_font('7D - 75TK')}", "days": 7, "price": 75},
-    "pkg_15d": {"name": f"{to_p_font('15D - 135TK')}", "days": 15, "price": 135},
-    "pkg_1m": {"name": f"{to_p_font('30D - 250TK')}", "days": 30, "price": 250},
-    "pkg_2m": {"name": f"{to_p_font('60D - 480TK')}", "days": 60, "price": 480},
-    "pkg_1y": {"name": f"{to_p_font('1Y - 1500TK')}", "days": 365, "price": 1500},
+    "pkg_7d": {"name": "7D - 75TK", "days": 7, "price": 75},
+    "pkg_15d": {"name": "15D - 135TK", "days": 15, "price": 135},
+    "pkg_1m": {"name": "1M - 250TK", "days": 30, "price": 250},
+    "pkg_2m": {"name": "2M - 480TK", "days": 60, "price": 480},
+    "pkg_1y": {"name": "1Y - 1500TK", "days": 365, "price": 1500},
 }
 
 def get_user(uid):
@@ -230,7 +230,7 @@ def handle_start(message):
             except Exception:
                 pass
 
-    # শুধুমাত্র একটি একক ওয়েলকাম মেসেজ যাবে এবং নিচের স্থায়ী মেনুবার সক্রিয় হয়ে যাবে
+    # মূল ওয়েলকাম কার্ড (চ্যানেল লিংক ইনলাইন বাটনসহ)
     welcome_msg = (      
         f"✦ <b>{to_p_font('ASSALAMU ALAIKUM')}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -240,11 +240,14 @@ def handle_start(message):
         f"𓊕 <b>{to_p_font('SYSTEM STATUS')}  :</b> {to_p_font('ACTIVE')}\n"
         f"⛁ <b>{to_p_font('CORE ENGINE')}    :</b> {to_p_font('ONLINE V2')}\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📢 <b>{to_p_font('OFFICIAL CHANNEL')} :</b> <a href=\"{CHANNEL_URL}\"><b>{to_p_font('CLICK HERE TO JOIN')}</b></a>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━"
+        f"⤋ <i>আমাদের অফিসিয়াল কমিউনিটি চ্যানেলে যুক্ত হতে নিচের বাটনে ক্লিক করুন:</i>"
     )
 
-    bot.send_message(message.chat.id, welcome_msg, parse_mode="HTML", reply_markup=main_reply_keyboard(), disable_web_page_preview=True)
+    markup = types.InlineKeyboardMarkup()
+    btn_chan = types.InlineKeyboardButton(f"𓆩♛𓆪 {to_p_font('JOIN OFFICIAL CHANNEL')}", url=CHANNEL_URL)
+    markup.add(btn_chan)
+
+    bot.send_message(message.chat.id, welcome_msg, parse_mode="HTML", reply_markup=markup)
 
 @bot.message_handler(func=lambda msg: msg.text and to_p_font('PROFILE') in msg.text)
 def handle_profile(message):
@@ -313,9 +316,10 @@ def handle_plans(message):
     markup = types.InlineKeyboardMarkup(row_width=2)
     buttons = []
     for pkg_id, info in PACKAGES.items():
-        buttons.append(types.InlineKeyboardButton(info['name'], callback_data=f"selpkg_{pkg_id}"))
+        btn_label = f"✦ {to_p_font(info['name'])}"
+        buttons.append(types.InlineKeyboardButton(btn_label, callback_data=f"selpkg_{pkg_id}"))
     
-    btn_custom = types.InlineKeyboardButton(f"❖ {to_p_font('CUSTOM DAYS')}", callback_data="custom_days_req")
+    btn_custom = types.InlineKeyboardButton(f"❖ {to_p_font('CUSTOM DAYS PLAN')}", callback_data="custom_days_req")
     markup.add(*buttons)
     markup.add(btn_custom)
 
@@ -329,12 +333,12 @@ def handle_package_selection(call):
     pkg = PACKAGES[pkg_id]
     uid = call.from_user.id
     u_data = get_user(uid)
-    u_data["temp_pkg"] = {"name": pkg["name"], "days": pkg["days"], "price": pkg["price"]}
+    u_data["temp_pkg"] = {"name": f"✦ {to_p_font(pkg['name'])}", "days": pkg["days"], "price": pkg["price"]}
 
     txt = (
         f"✦ <b>{to_p_font('SELECT PAYMENT METHOD')}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"✦ <b>{to_p_font('PACKAGE')} :</b> {pkg['name']}\n"
+        f"✦ <b>{to_p_font('PACKAGE')} :</b> {to_p_font(pkg['name'])}\n"
         f"⛃ <b>{to_p_font('PRICE')}   :</b> {to_p_font(pkg['price'])} BDT\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"দয়া করে আপনার পেমেন্ট মাধ্যম বেছে নিন:"
@@ -408,7 +412,8 @@ def handle_user_input(message):
             return
         days = int(message.text)
         price = days * PER_DAY_CUSTOM_PRICE
-        u_data["temp_pkg"] = {"name": f"{to_p_font(str(days) + 'D - ' + str(price) + 'TK')}", "days": days, "price": price}
+        pkg_title = f"{days}D - {price}TK"
+        u_data["temp_pkg"] = {"name": f"✦ {to_p_font(pkg_title)}", "days": days, "price": price}
         u_data["state"] = None
 
         txt = (
