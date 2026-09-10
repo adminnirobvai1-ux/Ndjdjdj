@@ -230,7 +230,7 @@ def handle_start(message):
             except Exception:
                 pass
 
-    # ১. বড় ও আকর্ষণীয় মূল ওয়েলকাম কার্ড (চ্যানেল লিংক ইনলাইন বাটনসহ)
+    # একক মূল ওয়েলকাম কার্ড (চ্যানেল লিংক এবং নিচের মেনুবার একসাথেই সক্রিয় হবে)
     welcome_msg = (      
         f"✦ <b>{to_p_font('ASSALAMU ALAIKUM')}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -240,20 +240,15 @@ def handle_start(message):
         f"𓊕 <b>{to_p_font('SYSTEM STATUS')}  :</b> {to_p_font('ACTIVE')}\n"
         f"⛁ <b>{to_p_font('CORE ENGINE')}    :</b> {to_p_font('ONLINE V2')}\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"⤋ <i>আমাদের অফিসিয়াল কমিউনিটি চ্যানেলে যুক্ত হতে নিচের বাটনে ক্লিক করুন:</i>"
+        f"⤋ <i>আমাদের অফিসিয়াল কমিউনিটি চ্যানেলে যুক্ত হতে নিচের লিংকে ক্লিক করুন:</i>\n"
+        f"👉 <a href=\"{CHANNEL_URL}\"><b>𓆩♛𓆪 {to_p_font('JOIN OFFICIAL CHANNEL')} 𓆩♛𓆪</b></a>"
     )
 
-    markup = types.InlineKeyboardMarkup()
-    btn_chan = types.InlineKeyboardButton(f"𓆩♛𓆪 {to_p_font('JOIN OFFICIAL CHANNEL')}", url=CHANNEL_URL)
-    markup.add(btn_chan)
-
-    bot.send_message(message.chat.id, welcome_msg, parse_mode="HTML", reply_markup=markup)
-
-    # ২. নিচের কিবোর্ড বাটনগুলো সাথে সাথে ডিসপ্লে ও স্থায়ী করার মেসেজ
     bot.send_message(
         message.chat.id, 
-        f"❖ <b>{to_p_font('NAVIGATION READY')}</b> : নিচের মেনুবার থেকে অপশন নির্বাচন করুন ⤋", 
+        welcome_msg, 
         parse_mode="HTML", 
+        disable_web_page_preview=True,
         reply_markup=main_reply_keyboard()
     )
 
