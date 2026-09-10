@@ -10,7 +10,7 @@ import telebot
 from telebot import types
 
 # আপনার দেওয়া টেলিগ্রাম বট টোকেন
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8949748635:AAF9w3mFRx2fqcE6AslsrR7AUuNJQzqB-PA")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8765791320:AAFCB4Ls3ASrPW_91m6uZhmIexqRrbk9nY0")
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # বাংলাদেশ টাইমজোন
