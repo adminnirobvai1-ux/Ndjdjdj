@@ -41,13 +41,13 @@ BOLD_MAP = {
 def to_p_font(text):
     return "".join(BOLD_MAP.get(c, c) for c in str(text))
 
-# প্যাকেজ তালিকা (শর্টকাট ফরম্যাট)
+# শর্টকাট প্যাকেজ তালিকা (7D - 75TK ফরম্যাট)
 PACKAGES = {
-    "pkg_7d": {"name": "7D - 75TK", "days": 7, "price": 75},
-    "pkg_15d": {"name": "15D - 135TK", "days": 15, "price": 135},
-    "pkg_1m": {"name": "30D - 250TK", "days": 30, "price": 250},
-    "pkg_2m": {"name": "60D - 480TK", "days": 60, "price": 480},
-    "pkg_1y": {"name": "1Y - 1500TK", "days": 365, "price": 1500},
+    "pkg_7d": {"name": f"{to_p_font('7D - 75TK')}", "days": 7, "price": 75},
+    "pkg_15d": {"name": f"{to_p_font('15D - 135TK')}", "days": 15, "price": 135},
+    "pkg_1m": {"name": f"{to_p_font('30D - 250TK')}", "days": 30, "price": 250},
+    "pkg_2m": {"name": f"{to_p_font('60D - 480TK')}", "days": 60, "price": 480},
+    "pkg_1y": {"name": f"{to_p_font('1Y - 1500TK')}", "days": 365, "price": 1500},
 }
 
 def get_user(uid):
@@ -230,7 +230,7 @@ def handle_start(message):
             except Exception:
                 pass
 
-    # একক মূল মেসেজ (অতিরিক্ত মেসেজ ছাড়া সরাসরি কিবোর্ডসহ)
+    # শুধুমাত্র একটি একক ওয়েলকাম মেসেজ যাবে এবং নিচের স্থায়ী মেনুবার সক্রিয় হয়ে যাবে
     welcome_msg = (      
         f"✦ <b>{to_p_font('ASSALAMU ALAIKUM')}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -239,18 +239,12 @@ def handle_start(message):
         "এখানে আপনি যেকোনো মেয়াদের প্রিমিয়াম টার্মিনাল সার্ভিস সহজে সংগ্রহ ও ব্যবহার করতে পারবেন।\n\n"
         f"𓊕 <b>{to_p_font('SYSTEM STATUS')}  :</b> {to_p_font('ACTIVE')}\n"
         f"⛁ <b>{to_p_font('CORE ENGINE')}    :</b> {to_p_font('ONLINE V2')}\n"
-        f"📢 <b>{to_p_font('OFFICIAL CHANNEL')}:</b> <a href='{CHANNEL_URL}'>Join Channel</a>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📢 <b>{to_p_font('OFFICIAL CHANNEL')} :</b> <a href=\"{CHANNEL_URL}\"><b>{to_p_font('CLICK HERE TO JOIN')}</b></a>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━"
     )
 
-    # মূল মেসেজের সাথেই নিচের মেনুবার সংযুক্ত করা হলো
-    bot.send_message(
-        message.chat.id, 
-        welcome_msg, 
-        parse_mode="HTML", 
-        disable_web_page_preview=True,
-        reply_markup=main_reply_keyboard()
-    )
+    bot.send_message(message.chat.id, welcome_msg, parse_mode="HTML", reply_markup=main_reply_keyboard(), disable_web_page_preview=True)
 
 @bot.message_handler(func=lambda msg: msg.text and to_p_font('PROFILE') in msg.text)
 def handle_profile(message):
@@ -312,16 +306,16 @@ def handle_plans(message):
     txt = (
         f"✦ <b>{to_p_font('AVAILABLE PREMIUM PLANS')}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"আপনার প্রয়োজনীয় প্যাকেজটি নির্বাচন করুন:\n"
+        f"আপনার প্রয়োজনীয় প্যাকেজটি নিচের তালিকা থেকে বেছে নিন:\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━"
     )
 
     markup = types.InlineKeyboardMarkup(row_width=2)
     buttons = []
     for pkg_id, info in PACKAGES.items():
-        buttons.append(types.InlineKeyboardButton(f"✦ {info['name']}", callback_data=f"selpkg_{pkg_id}"))
+        buttons.append(types.InlineKeyboardButton(info['name'], callback_data=f"selpkg_{pkg_id}"))
     
-    btn_custom = types.InlineKeyboardButton("❖ Custom Days", callback_data="custom_days_req")
+    btn_custom = types.InlineKeyboardButton(f"❖ {to_p_font('CUSTOM DAYS')}", callback_data="custom_days_req")
     markup.add(*buttons)
     markup.add(btn_custom)
 
@@ -364,7 +358,7 @@ def handle_custom_days_req(call):
         f"❖ <b>{to_p_font('CUSTOM DURATION PLAN')}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"✦ <b>{to_p_font('RATE PER DAY')}:</b> {to_p_font(PER_DAY_CUSTOM_PRICE)} BDT\n\n"
-        f"কত দিনের জন্য সার্ভিসটি নিতে চান? শুধু সংখ্যাটি লিখে পাঠান (যেমন: 2 বা 5):\n"
+        f"আপনি কত দিনের জন্য সার্ভিসটি নিতে চান? শুধু সংখ্যাটি লিখে পাঠান (যেমন: 2 বা 5):\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━"
     )
     bot.send_message(call.message.chat.id, msg, parse_mode="HTML")
@@ -395,7 +389,8 @@ def handle_payment_method(call):
         f"✦ <b>{to_p_font('ACCOUNT NO')}  :</b> <code>{number}</code> (Personal)\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"১. উপরের নম্বরে <b>{to_p_font(pkg['price'])} BDT</b> সেন্ড মানি করুন।\n"
-        f"২. সেন্ড মানি সফল হলে ট্রানজেকশন/আইডি কোড এবং স্ক্রিনশট নিচে পাঠিয়ে দিন।"
+        f"২. সেন্ড মানি সফল হলে ট্রানজেকশন/আইডি কোড এবং স্ক্রিনশট নিচে পাঠিয়ে দিন।\n\n"
+        f"দয়া করে সেন্ড মানি করে অপেক্ষা করুন। ওনার যাচাই করে দ্রুত টার্মিনাল চালু করে দেবে।"
     )
 
     bot.send_message(call.message.chat.id, txt, parse_mode="HTML")
@@ -413,7 +408,7 @@ def handle_user_input(message):
             return
         days = int(message.text)
         price = days * PER_DAY_CUSTOM_PRICE
-        u_data["temp_pkg"] = {"name": f"{days}D - {price}TK", "days": days, "price": price}
+        u_data["temp_pkg"] = {"name": f"{to_p_font(str(days) + 'D - ' + str(price) + 'TK')}", "days": days, "price": price}
         u_data["state"] = None
 
         txt = (
@@ -447,11 +442,12 @@ def handle_user_input(message):
             pending_requests[req_id] = {
                 "user_id": uid,
                 "days": pkg.get("days", 7),
-                "pkg_name": pkg.get("name", "7D - 75TK"),
+                "pkg_name": pkg.get("name", "Standard"),
                 "price": pkg.get("price", 0),
                 "method": method
             }
 
+        # ওনারের নিকট বাটনসহ অর্ডার কার্ড
         admin_markup = types.InlineKeyboardMarkup(row_width=2)
         btn_yes = types.InlineKeyboardButton(f"✓ {to_p_font('APPROVE')}", callback_data=f"adm_yes_{req_id}")
         btn_no = types.InlineKeyboardButton(f"✕ {to_p_font('REJECT')}", callback_data=f"adm_no_{req_id}")
@@ -485,7 +481,7 @@ def handle_user_input(message):
             f"✓ <b>{to_p_font('SUBMITTED SUCCESSFULLY')}</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"আপনার পেমেন্ট তথ্যটি সাবমিট করা হয়েছে।\n"
-            f"ওনার যাচাই করা মাত্রই টার্মিনাল সক্রিয় করে পাঠানো হবে।\n"
+            f"ওনার যাচাই করা মাত্রই টার্মিনাল সক্রিয় করে পাঠানো হবে। অনুগ্রহ করে অপেক্ষা করুন।\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━"
         )
         bot.reply_to(message, confirm_msg, parse_mode="HTML")
@@ -529,7 +525,7 @@ def handle_admin_decision(call):
         reject_msg = (
             f"✕ <b>{to_p_font('ORDER REJECTED')}</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"দুঃখিত, আপনার পেমেন্ট তথ্যটি সঠিক না থাকায় অনুরোধটি বাতিল করা হয়েছে।\n"
+            f"দুঃখিত, আপনার পেমেন্ট তথ্যটি সঠিক না থাকায় ওনার দ্বারা অনুরোধটি বাতিল করা হয়েছে।\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━"
         )
         bot.send_message(target_uid, reject_msg, parse_mode="HTML")
