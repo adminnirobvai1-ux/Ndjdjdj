@@ -10,28 +10,31 @@ import telebot
 from telebot import types
 from telebot.apihelper import ApiTelegramException
 
-# আপনার দেওয়া নতুন টেলিগ্রাম বট টোকেন
+# টেলিগ্রাম বট টোকেন
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8765791320:AAFCB4Ls3ASrPW_91m6uZhmIexqRrbk9nY0")
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True)
 
 # বাংলাদেশ টাইমজোন
 BD_TZ = pytz.timezone("Asia/Dhaka")
 
-# টার্মিনাল স্টোরেজ
+# টার্মিনাল স্টোরেজ ও লক
 terminals = {}
 terminal_counter = 1
 lock = threading.Lock()
 
 def spawn_sshx():
-    """ব্যাকগ্রাউন্ডে ভার্চুয়াল PTY দিয়ে আসল sshx সেশন চালু করে"""
+    """সরাসরি curl কমান্ডের মাধ্যমে ব্যাকগ্রাউন্ডে লাইভ sshx সেশন চালু করে"""
     try:
         master, slave = pty.openpty()
         env = os.environ.copy()
         env["SHELL"] = "/bin/bash"
         env["TERM"] = "xterm-256color"
 
+        # আপনার দেওয়া কমান্ড দিয়ে সাব-প্রসেস রান
+        cmd = "curl -sSf https://sshx.io/get | sh -s run"
+
         proc = subprocess.Popen(
-            ["sshx"],
+            ["bash", "-c", cmd],
             stdin=slave,
             stdout=slave,
             stderr=slave,
@@ -48,14 +51,14 @@ def spawn_sshx():
     buffer = ""
     start_time = time.time()
 
-    # আউটপুট থেকে আসল হ্যাশ-সহ সম্পূর্ণ sshx লিংক রিড করা
-    while time.time() - start_time < 15:
+    # আউটপুট থেকে আসল হ্যাশ-সহ সম্পূর্ণ sshx লিংক রিড করা (সর্বোচ্চ ২০ সেকেন্ড)
+    while time.time() - start_time < 20:
         try:
             chunk = os.read(master, 1024).decode("utf-8", errors="ignore")
             if chunk:
                 buffer += chunk
-                
-                # সম্পূর্ণ URL (এনক্রিপশন কি #... সহ)
+
+                # সম্পূর্ণ সিক্রেট কি-সহ URL প্যাটার্ন
                 match = re.search(r"https://sshx\.io/s/[A-Za-z0-9_-]+#[A-Za-z0-9_-]+", buffer)
                 if not match:
                     match = re.search(r"https://sshx\.io/s/[^\s\x1b\r\n]+", buffer)
@@ -81,7 +84,7 @@ def spawn_sshx():
     return proc, master, url
 
 def kill_terminal(term_id):
-    """আইডি অনুযায়ী নির্দিষ্ট টার্মিনাল বন্ধ করা"""
+    """আইডি অনুযায়ী নির্দিষ্ট টার্মিনাল প্রসেস কিল করা"""
     with lock:
         if term_id in terminals:
             info = terminals[term_id]
@@ -98,7 +101,7 @@ def kill_terminal(term_id):
     return False
 
 def schedule_auto_kill(term_id, delay_seconds, chat_id, expire_label):
-    """টাইম শেষ হলে স্বয়ংক্রিয়ভাবে নির্দিষ্ট টার্মিনাল বন্ধ করা"""
+    """টাইমার শেষ হলে টার্মিনাল স্বয়ংক্রিয়ভাবে বন্ধ করা"""
     def _runner():
         time.sleep(delay_seconds)
         if kill_terminal(term_id):
@@ -106,7 +109,7 @@ def schedule_auto_kill(term_id, delay_seconds, chat_id, expire_label):
                 bot.send_message(
                     chat_id,
                     f"⏰ <b>টার্মিনাল #{term_id} বন্ধ করা হয়েছে!</b>\n"
-                    f"নির্ধারিত সময় ({expire_label}) শেষ হওয়ায় এটি অফ হয়ে গেছে।",
+                    f"নির্ধারিত মেয়াদ ({expire_label}) পূর্ণ হয়েছে।",
                     parse_mode="HTML"
                 )
             except Exception:
@@ -116,7 +119,7 @@ def schedule_auto_kill(term_id, delay_seconds, chat_id, expire_label):
     t.start()
 
 def main_keyboard():
-    """বটের প্রধান মেনু বাটন"""
+    """বটের প্রধান কন্ট্রোল বাটন"""
     markup = types.InlineKeyboardMarkup(row_width=2)
     b1 = types.InlineKeyboardButton("➕ অ্যাড টার্মিনাল (+১)", callback_data="add_1")
     b2 = types.InlineKeyboardButton("➕ ৫টি অ্যাড করুন (+৫)", callback_data="add_5")
@@ -127,7 +130,7 @@ def main_keyboard():
     return markup
 
 def make_terminal_button(url, term_id):
-    """প্রতিটি টার্মিনালের জন্য সরাসরি ওয়েব এক্সেস ও কিল বাটন"""
+    """সরাসরি ব্রাউজারে টার্মিনাল খোলার বাটন"""
     markup = types.InlineKeyboardMarkup(row_width=1)
     btn_open = types.InlineKeyboardButton("🌐 টার্মিনালে প্রবেশ করুন (Open)", url=url)
     btn_close = types.InlineKeyboardButton(f"🛑 বন্ধ করুন (#{term_id})", callback_data=f"kill_{term_id}")
@@ -137,14 +140,14 @@ def make_terminal_button(url, term_id):
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     msg = (
-        "🚀 <b>SSHX রিয়েল মাল্টি-টার্মিনাল প্যানেল</b>\n\n"
-        "প্রতিটি টার্মিনাল সরাসরি সার্ভারের ব্যাকগ্রাউন্ডে ১০০% লাইভ চলবে। ১০০টিরও বেশি টার্মিনাল চালানো সম্ভব।\n\n"
-        "<b>ব্যবহারের নিয়ম:</b>\n"
-        "• <b>[➕ অ্যাড টার্মিনাল (+১)]</b> বাটনে ক্লিক করুন।\n"
+        "🚀 <b>SSHX লাইভ টার্মিনাল কন্ট্রোলার</b>\n\n"
+        "প্রতিটি টার্মিনাল ব্যাকগ্রাউন্ডে <code>curl -sSf https://sshx.io/get | sh -s run</code> দিয়ে সরাসরি লাইভ তৈরি হয়।\n\n"
+        "<b>কমান্ডসমূহ:</b>\n"
+        "• <b>[➕ অ্যাড টার্মিনাল (+১)]</b> - বাটন চেপে ইনস্ট্যান্ট টার্মিনাল খুলুন।\n"
         "• <code>/add 5</code> - একসাথে ৫টি টার্মিনাল তৈরি করতে।\n"
         "• <code>/off 1</code> - ১ নম্বর টার্মিনাল বন্ধ করতে।\n"
         "• <code>/tm 10:00AM-1:00PM</code> - নির্দিষ্ট সময়ে টার্মিনাল অটো-অফ করতে।\n"
-        "• <code>/list</code> - সব সক্রিয় টার্মিনাল দেখতে।"
+        "• <code>/list</code> - চালু থাকা টার্মিনালগুলোর তালিকা দেখতে।"
     )
     bot.reply_to(message, msg, parse_mode="HTML", reply_markup=main_keyboard())
 
@@ -156,7 +159,7 @@ def create_terminals(count, chat_id, expire_seconds=None, expire_label="আন�
             bot.send_message(chat_id, f"⚠️ সীমা পূর্ণ! বর্তমানে {current_len}টি চলছে। সর্বোচ্চ ১৫০টি রাখা যাবে।")
             return
 
-    bot.send_message(chat_id, f"⏳ {count}টি রিয়েল টার্মিনাল হোস্ট করা হচ্ছে, অপেক্ষা করুন...")
+    bot.send_message(chat_id, f"⏳ {count}টি টার্মিনাল ব্যাকগ্রাউন্ডে ইনস্টল ও রান হচ্ছে, অপেক্ষা করুন...")
 
     for _ in range(count):
         proc, master_fd, url = spawn_sshx()
@@ -180,11 +183,11 @@ def create_terminals(count, chat_id, expire_seconds=None, expire_label="আন�
                 schedule_auto_kill(t_id, expire_seconds, chat_id, expire_label)
 
             res = (
-                f"✅ <b>টার্মিনাল তৈরি সফল হয়েছে!</b>\n\n"
+                f"✅ <b>টার্মিনাল তৈরি সফল!</b>\n\n"
                 f"🔹 <b>আইডি (ID):</b> <code>{t_id}</code>\n"
                 f"⏱️ <b>মেয়াদ:</b> {expire_label}\n"
                 f"🛑 বন্ধ করতে কমান্ড: <code>/off {t_id}</code>\n\n"
-                f"👇 নিচের বাটনে ক্লিক করে টার্মিনালে প্রবেশ করুন:"
+                f"👇 নিচের বাটনে চাপ দিয়ে সরাসরি টার্মিনাল ব্যবহার করুন:"
             )
             bot.send_message(
                 chat_id, 
@@ -193,7 +196,7 @@ def create_terminals(count, chat_id, expire_seconds=None, expire_label="আন�
                 reply_markup=make_terminal_button(url, t_id)
             )
         else:
-            bot.send_message(chat_id, "⚠️ টার্মিনাল তৈরি হতে সমস্যা হয়েছে!")
+            bot.send_message(chat_id, "⚠️ টার্মিনাল লিঙ্ক জেনারেট হতে ব্যর্থ হয়েছে! পুনরায় চেষ্টা করুন।")
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
@@ -208,14 +211,14 @@ def handle_callback(call):
             all_ids = list(terminals.keys())
         for tid in all_ids:
             kill_terminal(tid)
-        bot.send_message(call.message.chat.id, "🛑 সব টার্মিনাল বন্ধ করা হয়েছে!", reply_markup=main_keyboard())
+        bot.send_message(call.message.chat.id, "🛑 সব টার্মিনাল সফলভাবে বন্ধ করা হয়েছে!", reply_markup=main_keyboard())
     elif call.data.startswith("kill_"):
         try:
             tid = int(call.data.replace("kill_", ""))
             if kill_terminal(tid):
                 bot.send_message(call.message.chat.id, f"🛑 <b>টার্মিনাল #{tid} বন্ধ করা হয়েছে!</b>", parse_mode="HTML")
             else:
-                bot.send_message(call.message.chat.id, f"⚠️ টার্মিনাল #{tid} আগেই বন্ধ হয়ে গেছে।")
+                bot.send_message(call.message.chat.id, f"⚠️ টার্মিনাল #{tid} ইতোমধ্যে বন্ধ রয়েছে।")
         except Exception:
             pass
 
@@ -230,7 +233,7 @@ def handle_add(message):
         parts = message.text.strip().split()
         count = int(parts[1]) if len(parts) > 1 else 1
         if count > 100:
-            bot.reply_to(message, "⚠️ একসাথে সর্বোচ্চ ১০০টি টার্মিনাল তৈরি করা যাবে।")
+            bot.reply_to(message, "⚠️ একসাথে সর্বোচ্চ ১০০টি টার্মিনাল যোগ করা যাবে।")
             return
         create_terminals(count, message.chat.id)
     except ValueError:
@@ -316,7 +319,7 @@ def show_list(chat_id):
         exp = data["expire_at"].strftime("%I:%M %p") if data["expire_at"] else "আনলিমিটেড"
         entry = (
             f"🔹 <b>আইডি:</b> <code>{tid}</code> | ⏱️ {exp}\n"
-            f"🔗 <a href=\"{data['url']}\">টার্মিনাল লিঙ্ক</a>\n"
+            f"🔗 <a href=\"{data['url']}\">টার্মিনাল লিংক</a>\n"
             f"🛑 বন্ধ: <code>/off {tid}</code>\n\n"
         )
         if len(msg) + len(entry) > 3800:
@@ -327,7 +330,7 @@ def show_list(chat_id):
     if msg:
         bot.send_message(chat_id, msg, parse_mode="HTML", disable_web_page_preview=True, reply_markup=main_keyboard())
 
-# অটো-রিকানেক্ট ও 409 Conflict হ্যান্ডলিং লুপ
+# অটো-রিকানেক্টিং মেইন লুপ
 if __name__ == "__main__":
     print("Telegram Terminal Bot চালু হচ্ছে...")
     time.sleep(2)
@@ -341,11 +344,9 @@ if __name__ == "__main__":
             bot.infinity_polling(timeout=20, long_polling_timeout=10, logger_level=None)
         except ApiTelegramException as e:
             if e.error_code == 409:
-                print("পূর্বের ইনস্ট্যান্স বন্ধ হওয়ার জন্য ১০ সেকেন্ড অপেক্ষা করছি...")
+                print("অন্য ইনস্ট্যান্স বন্ধের জন্য ১০ সেকেন্ড অপেক্ষা...")
                 time.sleep(10)
             else:
-                print(f"Telegram API Error: {e}. ৫ সেকেন্ড পর রিস্টার্ট হচ্ছে...")
                 time.sleep(5)
         except Exception as e:
-            print(f"Network error: {e}. ৫ সেকেন্ড পর রিস্টার্ট হচ্ছে...")
             time.sleep(5)
