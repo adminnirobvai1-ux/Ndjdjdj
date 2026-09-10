@@ -239,8 +239,7 @@ def handle_start(message):
         pass
 
     # বড় ও আকর্ষণীয় মূল ওয়েলকাম কার্ড
-    welcome_msg = (
-        "﷽\n\n"
+    welcome_msg = (      
         f"✦ <b>{to_p_font('ASSALAMU ALAIKUM')}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"𓆩♛𓆪 <b>{to_p_font('VIP AUTOMATION PORTAL')}</b>\n\n"
