@@ -1,47 +1,28 @@
-import sys
-import subprocess
 import os
-import shutil
 import pty
+import subprocess
 import re
 import time
 import threading
 from datetime import datetime, timedelta
-
-# প্রয়োজনীয় লাইব্রেরি স্বয়ংক্রিয়ভাবে ইনস্টল
-for pkg in ["pyTelegramBotAPI", "pytz"]:
-    try:
-        __import__(pkg if pkg != "pyTelegramBotAPI" else "telebot")
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
-
 import pytz
 import telebot
 from telebot import types
 
-# পাথ সেট এবং sshx চেক
-home_bin = os.path.expanduser("~/.local/bin")
-if home_bin not in os.environ.get("PATH", ""):
-    os.environ["PATH"] = f"{home_bin}:/usr/local/bin:{os.environ.get('PATH', '')}"
-
-if not shutil.which("sshx"):
-    print("sshx পাওয়া যায়নি, ইনস্টল করা হচ্ছে...")
-    os.system("curl -sSf https://sshx.io/get | sh")
-
-# নতুন টেলিগ্রাম বট টোকেন
+# আপনার দেওয়া নতুন টেলিগ্রাম বট টোকেন
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8765791320:AAFCB4Ls3ASrPW_91m6uZhmIexqRrbk9nY0")
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # বাংলাদেশ টাইমজোন
 BD_TZ = pytz.timezone("Asia/Dhaka")
 
-# ডেটাবেস ও লক
+# টার্মিনাল ডেটাবেস
 terminals = {}
 terminal_counter = 1
 lock = threading.Lock()
 
 def spawn_sshx():
-    """ব্যাকগ্রাউন্ডে ভার্চুয়াল PTY দিয়ে sshx তৈরি ও লিংক বের করা"""
+    """ব্যাকগ্রাউন্ডে ভার্চুয়াল PTY দিয়ে sshx চালু ও লাইভ লিংক রিটার্ন করে"""
     try:
         master, slave = pty.openpty()
         proc = subprocess.Popen(
@@ -61,6 +42,7 @@ def spawn_sshx():
     buffer = ""
     start_time = time.time()
 
+    # আউটপুট থেকে sshx লিংক বের করা
     while time.time() - start_time < 15:
         try:
             chunk = os.read(master, 1024).decode("utf-8", errors="ignore")
@@ -105,15 +87,15 @@ def kill_terminal(term_id):
     return False
 
 def schedule_auto_kill(term_id, delay_seconds, chat_id, expire_label):
-    """টাইমার শেষ হলে টার্মিনাল অটোমেটিক বন্ধ করা"""
+    """টাইম শেষ হলে টার্মিনাল স্বয়ংক্রিয়ভাবে বন্ধ করা"""
     def _runner():
         time.sleep(delay_seconds)
         if kill_terminal(term_id):
             try:
                 bot.send_message(
                     chat_id,
-                    f"⏰ <b>টার্মিনাল #{term_id} বন্ধ করা হয়েছে!</b>\n"
-                    f"নির্ধারিত সময় ({expire_label}) শেষ হওয়ায় সেশন ক্লোজ করা হয়েছে।",
+                    f"⏰ <b>টার্মিনাল #{term_id} বন্ধ হয়েছে!</b>\n"
+                    f"নির্ধারিত সময় ({expire_label}) পার হওয়ায় এটি অফ হয়ে গেছে।",
                     parse_mode="HTML"
                 )
             except Exception:
@@ -123,7 +105,7 @@ def schedule_auto_kill(term_id, delay_seconds, chat_id, expire_label):
     t.start()
 
 def main_keyboard():
-    """বটের প্রধান ইনলাইন বাটন"""
+    """বটের ইনলাইন বাটন"""
     markup = types.InlineKeyboardMarkup(row_width=2)
     b1 = types.InlineKeyboardButton("➕ অ্যাড টার্মিনাল (+১)", callback_data="add_1")
     b2 = types.InlineKeyboardButton("➕ ৫টি অ্যাড করুন (+৫)", callback_data="add_5")
@@ -137,12 +119,12 @@ def main_keyboard():
 def send_welcome(message):
     msg = (
         "🚀 <b>SSHX মাল্টি-টার্মিনাল প্যানেল</b>\n\n"
-        "প্রতিবার <b>[➕ অ্যাড টার্মিনাল (+১)]</b> চাপলে একটি করে নতুন টার্মিনাল যুক্ত হবে। এখানে ১০০টিরও বেশি টার্মিনাল একসাথে চালানো সম্ভব।\n\n"
+        "প্রতিবার <b>[➕ অ্যাড টার্মিনাল (+১)]</b> বাটনে চাপ দিলে ১টি করে নতুন টার্মিনাল তৈরি হবে। এখানে ১০০টিরও বেশি টার্মিনাল একসাথে চালানো যাবে।\n\n"
         "<b>কমান্ডসমূহ:</b>\n"
-        "• <code>/add 10</code> - একসাথে ১০টি টার্মিনাল বানাতে (ইচ্ছামতো সংখ্যা দিতে পারেন)\n"
-        "• <code>/off 1</code> - ১ নম্বর টার্মিনাল বন্ধ করতে\n"
+        "• <code>/add 5</code> - একসাথে ৫টি টার্মিনাল বানাতে\n"
+        "• <code>/off 1</code> - ১ নম্বর আইডি টার্মিনাল বন্ধ করতে\n"
         "• <code>/tm 10:00AM-1:00PM</code> - নির্দিষ্ট সময়ে টার্মিনাল অটো-অফ করতে\n"
-        "• <code>/list</code> - সব চলমান টার্মিনালের তালিকা দেখতে"
+        "• <code>/list</code> - চালু থাকা সব টার্মিনাল দেখতে"
     )
     bot.reply_to(message, msg, parse_mode="HTML", reply_markup=main_keyboard())
 
@@ -150,11 +132,11 @@ def create_terminals(count, chat_id, expire_seconds=None, expire_label="আন�
     global terminal_counter
     with lock:
         current_len = len(terminals)
-        if current_len + count > 200:
-            bot.send_message(chat_id, f"⚠️ সীমা পূর্ণ! বর্তমানে {current_len}টি চলছে। সর্বোচ্চ ২০০টি রাখা যাবে।")
+        if current_len + count > 150:
+            bot.send_message(chat_id, f"⚠️ সীমা পূর্ণ! বর্তমানে {current_len}টি চলছে। সর্বোচ্চ ১৫০টি রাখা যাবে।")
             return
 
-    bot.send_message(chat_id, f"⏳ {count}টি টার্মিনাল তৈরি হচ্ছে, অনুগ্রহ করে কয়েক সেকেন্ড অপেক্ষা করুন...")
+    bot.send_message(chat_id, f"⏳ {count}টি টার্মিনাল তৈরি হচ্ছে, দয়া করে কয়েক সেকেন্ড অপেক্ষা করুন...")
 
     success_count = 0
     for _ in range(count):
@@ -188,7 +170,7 @@ def create_terminals(count, chat_id, expire_seconds=None, expire_label="আন�
             )
             bot.send_message(chat_id, res, parse_mode="HTML", disable_web_page_preview=True, reply_markup=main_keyboard())
         else:
-            bot.send_message(chat_id, "⚠️ একটি টার্মিনাল কানেক্ট করতে সমস্যা হয়েছে!")
+            bot.send_message(chat_id, "⚠️ টার্মিনাল কানেক্ট করতে সমস্যা হয়েছে!")
 
     if success_count > 1:
         bot.send_message(chat_id, f"🎉 মোট {success_count}টি টার্মিনাল সফলভাবে তৈরি হয়েছে!", reply_markup=main_keyboard())
@@ -215,11 +197,11 @@ def handle_add(message):
         parts = message.text.strip().split()
         count = int(parts[1]) if len(parts) > 1 else 1
         if count > 100:
-            bot.reply_to(message, "⚠️ একসাথে সর্বোচ্চ ১০০টি টার্মিনাল অ্যাড করতে পারবেন।")
+            bot.reply_to(message, "⚠️ একসাথে সর্বোচ্চ ১০০টি টার্মিনাল যোগ করা যাবে।")
             return
         create_terminals(count, message.chat.id)
     except ValueError:
-        bot.reply_to(message, "ব্যবহারবিধি: <code>/add 5</code> (কয়টি বানাবেন লিখুন)", parse_mode="HTML")
+        bot.reply_to(message, "ব্যবহারবিধি: <code>/add 2</code>", parse_mode="HTML")
 
 @bot.message_handler(commands=['off'])
 def handle_off(message):
@@ -241,7 +223,7 @@ def handle_off(message):
 def handle_timer(message):
     text = message.text.replace("/tm", "").replace("/TM", "").strip()
     if not text:
-        bot.reply_to(message, "ব্যবহারবিধি: <code>/tm 10:00AM-1:00PM</code> অথবা <code>/tm 45m</code>", parse_mode="HTML")
+        bot.reply_to(message, "ব্যবহারবিধি: <code>/tm 10:00AM-1:00PM</code> অথবা <code>/tm 30m</code>", parse_mode="HTML")
         return
 
     now_bd = datetime.now(BD_TZ)
@@ -278,7 +260,7 @@ def handle_timer(message):
             pass
 
     if not parsed:
-        bot.reply_to(message, "⚠️ সময়ের ফরম্যাট সঠিক নয়!\nউদাহরণ: <code>/tm 10:00AM-1:00PM</code> অথবা <code>/tm 30m</code>", parse_mode="HTML")
+        bot.reply_to(message, "⚠️ সময়ের ফরম্যাট সঠিক নয়!\nউদাহরণ: <code>/tm 10:00AM-1:00PM</code> অথবা <code>/tm 45m</code>", parse_mode="HTML")
         return
 
     create_terminals(1, message.chat.id, expire_seconds=delay_seconds, expire_label=expire_label)
@@ -296,9 +278,7 @@ def show_list(chat_id):
         items = list(terminals.items())
         total = len(items)
 
-    now = datetime.now(BD_TZ)
     msg = f"📋 <b>চলমান টার্মিনালসমূহ (মোট {total}টি):</b>\n\n"
-
     for tid, data in items:
         exp = data["expire_at"].strftime("%I:%M %p") if data["expire_at"] else "আনলিমিটেড"
         entry = (
