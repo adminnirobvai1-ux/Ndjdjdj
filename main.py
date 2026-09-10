@@ -41,13 +41,13 @@ BOLD_MAP = {
 def to_p_font(text):
     return "".join(BOLD_MAP.get(c, c) for c in str(text))
 
-# প্যাকেজ তালিকা (মেয়াদ ও প্রাইস)
+# প্যাকেজ তালিকা (শর্টকাট ফরম্যাটে: 7D - 75TK)
 PACKAGES = {
-    "pkg_7d": {"name": f"✦ {to_p_font('7 DAYS ACCESS')}", "days": 7, "price": 75},
-    "pkg_15d": {"name": f"✦ {to_p_font('15 DAYS ACCESS')}", "days": 15, "price": 135},
-    "pkg_1m": {"name": f"✦ {to_p_font('1 MONTH ACCESS')}", "days": 30, "price": 250},
-    "pkg_2m": {"name": f"✦ {to_p_font('2 MONTHS ACCESS')}", "days": 60, "price": 480},
-    "pkg_1y": {"name": f"✦ {to_p_font('1 YEAR ACCESS')}", "days": 365, "price": 1500},
+    "pkg_7d": {"name": f"✦ {to_p_font('7D - 75TK')}", "days": 7, "price": 75},
+    "pkg_15d": {"name": f"✦ {to_p_font('15D - 135TK')}", "days": 15, "price": 135},
+    "pkg_1m": {"name": f"✦ {to_p_font('1M - 250TK')}", "days": 30, "price": 250},
+    "pkg_2m": {"name": f"✦ {to_p_font('2M - 480TK')}", "days": 60, "price": 480},
+    "pkg_1y": {"name": f"✦ {to_p_font('1Y - 1500TK')}", "days": 365, "price": 1500},
 }
 
 def get_user(uid):
@@ -230,7 +230,7 @@ def handle_start(message):
             except Exception:
                 pass
 
-    # একক মূল ওয়েলকাম কার্ড (চ্যানেল লিংক এবং নিচের মেনুবার একসাথেই সক্রিয় হবে)
+    # শুধুমাত্র একটি একক ওয়েলকাম কার্ড পাঠানো হচ্ছে (দ্বিতীয় কোনো অতিরিক্ত মেসেজ ছাড়া কিবোর্ড চলে আসবে)
     welcome_msg = (      
         f"✦ <b>{to_p_font('ASSALAMU ALAIKUM')}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -319,10 +319,9 @@ def handle_plans(message):
     markup = types.InlineKeyboardMarkup(row_width=2)
     buttons = []
     for pkg_id, info in PACKAGES.items():
-        btn_label = f"{info['name']} ⎯ {to_p_font(info['price'])} BDT"
-        buttons.append(types.InlineKeyboardButton(btn_label, callback_data=f"selpkg_{pkg_id}"))
+        buttons.append(types.InlineKeyboardButton(info['name'], callback_data=f"selpkg_{pkg_id}"))
     
-    btn_custom = types.InlineKeyboardButton(f"❖ {to_p_font('CUSTOM DAYS PLAN')}", callback_data="custom_days_req")
+    btn_custom = types.InlineKeyboardButton(f"❖ {to_p_font('CUSTOM PLAN')}", callback_data="custom_days_req")
     markup.add(*buttons)
     markup.add(btn_custom)
 
@@ -415,7 +414,7 @@ def handle_user_input(message):
             return
         days = int(message.text)
         price = days * PER_DAY_CUSTOM_PRICE
-        u_data["temp_pkg"] = {"name": f"✦ {to_p_font(str(days) + ' DAYS ACCESS')}", "days": days, "price": price}
+        u_data["temp_pkg"] = {"name": f"✦ {to_p_font(str(days) + 'D - ' + str(price) + 'TK')}", "days": days, "price": price}
         u_data["state"] = None
 
         txt = (
