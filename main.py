@@ -178,7 +178,7 @@ def create_and_send_vps(target_user_id, days):
 
     schedule_auto_kill(t_id, delay_sec, target_user_id, expire_str)
 
-    # স্ক্রিনশটের ফরম্যাটে প্রিমিয়াম ডেলিভারি বার্তা
+    # প্রিমিয়াম ডেলিভারি বার্তা
     msg = (
         f"✓ <b>{to_p_font('TERMINAL CREATED SUCCESSFULLY')}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -196,9 +196,9 @@ def create_and_send_vps(target_user_id, days):
     bot.send_message(target_user_id, msg, parse_mode="HTML", reply_markup=markup)
     return True
 
-# নিচের স্থায়ী কিবোর্ড মেনুবার (৪টি বাটন)
+# নিচের স্থায়ী প্রিমিয়াম মেনুবার কিবোর্ড (কখনো মিনিমাইজ বা হাইড হবে না)
 def main_reply_keyboard():
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2, is_persistent=True)
     b1 = types.KeyboardButton(f"𔒝 {to_p_font('PROFILE')}")
     b2 = types.KeyboardButton(f"⛃ {to_p_font('BALANCE')}")
     b3 = types.KeyboardButton(f"♞ {to_p_font('REFERRAL')}")
@@ -211,7 +211,7 @@ def handle_start(message):
     uid = message.from_user.id
     u_data = get_user(uid)
 
-    # রেফারেল হ্যান্ডলিং
+    # রেফারেল ট্র্যাকিং
     parts = message.text.split()
     if len(parts) > 1 and parts[1].isdigit():
         ref_id = int(parts[1])
@@ -231,31 +231,30 @@ def handle_start(message):
             except Exception:
                 pass
 
-    # ক্লায়েন্টের নিচের মেনুবার সক্রিয় করা
-    try:
-        init_slot = bot.send_message(message.chat.id, "✦", reply_markup=main_reply_keyboard())
-        bot.delete_message(message.chat.id, init_slot.message_id)
-    except Exception:
-        pass
-
-    # বড় ও আকর্ষণীয় মূল ওয়েলকাম কার্ড
-    welcome_msg = (      
+    # সরাসরি একটি মাত্র আকর্ষণীয় কার্ড (কিবোর্ড বাটনগুলো স্ক্রিনের নিচে স্বয়ংক্রিয়ভাবে সক্রিয় হবে)
+    welcome_msg = (
+        "﷽\n\n"
         f"✦ <b>{to_p_font('ASSALAMU ALAIKUM')}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"𓆩♛𓆪 <b>{to_p_font('VIP AUTOMATION PORTAL')}</b>\n\n"
         "আসসালামু আলাইকুম। আমাদের অফিসিয়াল বটের ড্যাশবোর্ডে আপনাকে স্বাগতম। "
         "এখানে আপনি যেকোনো মেয়াদের প্রিমিয়াম টার্মিনাল সার্ভিস সহজে সংগ্রহ ও ব্যবহার করতে পারবেন।\n\n"
+        f"✦ <b>{to_p_font('OFFICIAL OWNER')} :</b> {ADMIN_USERNAME}\n"
         f"𓊕 <b>{to_p_font('SYSTEM STATUS')}  :</b> {to_p_font('ACTIVE')}\n"
         f"⛁ <b>{to_p_font('CORE ENGINE')}    :</b> {to_p_font('ONLINE V2')}\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"⤋ <i>আমাদের অফিসিয়াল কমিউনিটি চ্যানেলে যুক্ত হতে নিচের বাটনে ক্লিক করুন:</i>"
+        f"➠ <b>{to_p_font('COMMUNITY CHANNEL')}:</b>\n"
+        f"𓆩♛𓆪 <a href=\"{CHANNEL_URL}\"><b>[{to_p_font('CLICK HERE TO JOIN OUR CHANNEL')}]</b></a>\n\n"
+        "<i>নিচের মেনু কিবোর্ড থেকে অপশন সিলেক্ট করুন:</i>"
     )
 
-    markup = types.InlineKeyboardMarkup()
-    btn_chan = types.InlineKeyboardButton(f"𓆩♛𓆪 {to_p_font('JOIN OFFICIAL CHANNEL')}", url=CHANNEL_URL)
-    markup.add(btn_chan)
-
-    bot.send_message(message.chat.id, welcome_msg, parse_mode="HTML", reply_markup=markup)
+    bot.send_message(
+        message.chat.id, 
+        welcome_msg, 
+        parse_mode="HTML", 
+        reply_markup=main_reply_keyboard(),
+        disable_web_page_preview=True
+    )
 
 @bot.message_handler(func=lambda msg: msg.text and to_p_font('PROFILE') in msg.text)
 def handle_profile(message):
