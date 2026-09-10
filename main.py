@@ -13,7 +13,7 @@ from telebot.apihelper import ApiTelegramException
 # কনফিগারেশন
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8991156137:AAHW2Vk30vxB5WpmV1qXIXz5j2eG94VCXlI")
 ADMIN_ID = 8707571669
-ADMIN_USERNAME = ""
+ADMIN_USERNAME = "@DARK67HACK"
 CHANNEL_URL = "https://t.me/DARK67HACK"
 BKASH_NUMBER = "01870829343"
 NAGAD_NUMBER = "01876685711"
@@ -246,7 +246,6 @@ def handle_start(message):
         f"𓆩♛𓆪 <b>{to_p_font('VIP AUTOMATION PORTAL')}</b>\n\n"
         "আসসালামু আলাইকুম। আমাদের অফিসিয়াল বটের ড্যাশবোর্ডে আপনাকে স্বাগতম। "
         "এখানে আপনি যেকোনো মেয়াদের প্রিমিয়াম টার্মিনাল সার্ভিস সহজে সংগ্রহ ও ব্যবহার করতে পারবেন।\n\n"
-        f"✦ <b>{to_p_font('OFFICIAL OWNER')} :</b> {ADMIN_USERNAME}\n"
         f"𓊕 <b>{to_p_font('SYSTEM STATUS')}  :</b> {to_p_font('ACTIVE')}\n"
         f"⛁ <b>{to_p_font('CORE ENGINE')}    :</b> {to_p_font('ONLINE V2')}\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
